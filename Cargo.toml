@@ -1,6 +1,6 @@
 [package]
 name        = "pawc"
-version     = "0.1.1"
+version     = "0.1.2"
 authors     = ["Kinleoapple"]
 description = "🐾 PawScript interpret"
 license     = "MIT"
