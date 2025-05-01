@@ -206,6 +206,44 @@ impl TypeChecker {
             Expr::LiteralBool(_) => Ok(PawType::Bool),
             Expr::LiteralChar(_) => Ok(PawType::Char),
 
+            Expr::ArrayLiteral(elems) => {
+                // 如果空数组，元素类型先标记为 Any
+                let elem_ty = if let Some(first) = elems.first() {
+                    let ty0 = self.check_expr(first)?;
+                    // 确保其它元素类型一致
+                    for e in elems.iter().skip(1) {
+                        let ty1 = self.check_expr(e)?;
+                        if ty0 != ty1 {
+                            return Err(PawError::Type {
+                                message: format!(
+                                    "Array literal element types mismatch: {} vs {}",
+                                    ty0, ty1
+                                ),
+                            });
+                        }
+                    }
+                    ty0
+                } else {
+                    PawType::Any
+                };
+                Ok(PawType::Array(Box::new(elem_ty)))
+            }
+            Expr::Index { array, index } => {
+                let arr_ty = self.check_expr(array)?;
+                let idx_ty = self.check_expr(index)?;
+                if idx_ty != PawType::Int {
+                    return Err(PawError::Type {
+                        message: format!("Index must be Int, found {}", idx_ty),
+                    });
+                }
+                match arr_ty {
+                    PawType::Array(inner) => Ok(*inner),
+                    other => Err(PawError::Type {
+                        message: format!("Cannot index into non-array type {}", other),
+                    }),
+                }
+            }
+
             Expr::UnaryOp { op, expr } => {
                 let ty = self.check_expr(expr)?;
                 match op.as_str() {
@@ -226,6 +264,7 @@ impl TypeChecker {
                 let l_ty = self.check_expr(left)?;
                 let r_ty = self.check_expr(right)?;
 
+                // 字符串拼接：String + X 或 X + String => String
                 if *op == BinaryOp::Add && (l_ty == PawType::String || r_ty == PawType::String) {
                     return Ok(PawType::String);
                 }
@@ -262,11 +301,10 @@ impl TypeChecker {
                 .ok_or_else(|| PawError::UndefinedVariable { name: name.clone() }),
 
             Expr::Call { name, args } => {
-                // 先检查所有参数
+                // 函数调用：先检查参数，再返回预注册的签名
                 for arg in args {
                     let _ = self.check_expr(arg)?;
                 }
-                // 再返回函数签名里定义的返回类型
                 self.scope
                     .lookup(name)
                     .ok_or_else(|| PawError::UndefinedVariable { name: name.clone() })

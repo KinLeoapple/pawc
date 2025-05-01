@@ -88,7 +88,7 @@ impl Parser {
         // 1) consume the variable name and its declared type
         let name = self.expect_identifier()?;
         self.expect_token(Token::Colon)?;
-        let ty = self.expect_type()?;
+        let ty = self.parse_type()?;
 
         // 2) if the next token is `<-`, it's an `ask` initialization:
         if self.peek() == Some(&Token::LeftArrow) {
@@ -217,7 +217,7 @@ impl Parser {
         while !matches!(self.peek(), Some(Token::RParen)) {
             let pn = self.expect_identifier()?;
             self.expect_token(Token::Colon)?;
-            let pt = self.expect_type()?;
+            let pt = self.parse_type()?;
             params.push(Param { name: pn, ty: pt });
             if matches!(self.peek(), Some(Token::Comma)) {
                 self.next();
@@ -228,7 +228,7 @@ impl Parser {
         self.expect_token(Token::RParen)?;
         let ret = if matches!(self.peek(), Some(Token::Colon)) {
             self.next();
-            Some(self.expect_type()?)
+            Some(self.parse_type()?)
         } else {
             None
         };
@@ -255,6 +255,28 @@ impl Parser {
         }
         self.expect_token(Token::RBrace)?;
         Ok(stmts)
+    }
+
+    /// 解析一个类型标注，支持泛型写法，如 Array<Int>
+    fn parse_type(&mut self) -> Result<String, PawError> {
+        // 必须是一个 Token::Type，比如 "Int" 或者刚才改好的 "Array"
+        let base = match self.next() {
+            Some(Token::Type(name)) => name,
+            other => {
+                return Err(PawError::Syntax {
+                    message: format!("Expected type, got {:?}", other),
+                });
+            }
+        };
+        // 如果紧跟一个 '<'，则递归解析内部类型，直到 '>'
+        if let Some(Token::Lt) = self.peek() {
+            self.next();                     // 消费 '<'
+            let inner = self.parse_type()?;  // 递归
+            self.expect_token(Token::Gt)?;   // 消费 '>'
+            Ok(format!("{}<{}>", base, inner))
+        } else {
+            Ok(base)
+        }
     }
 
     pub fn parse_expr(&mut self) -> Result<Expr, PawError> {
@@ -334,23 +356,43 @@ impl Parser {
             Some(Token::StringLiteral(s)) => Expr::LiteralString(s),
             Some(Token::CharLiteral(c)) => Expr::LiteralChar(c),
             Some(Token::Identifier(n)) => {
-                if matches!(self.peek(), Some(Token::LParen)) {
-                    // call
-                    self.next();
-                    let mut args = Vec::new();
-                    while !matches!(self.peek(), Some(Token::RParen)) {
-                        args.push(self.parse_expr()?);
-                        if matches!(self.peek(), Some(Token::Comma)) {
+                let mut node = Expr::Var(n);
+                // 如果接下来是 '(' 则做函数调用，否则如果是 '[' 做索引
+                loop {
+                    match self.peek() {
+                        Some(Token::LParen) => {
+                            // 调用
                             self.next();
-                        } else {
-                            break;
+                            let mut args = Vec::new();
+                            while self.peek() != Some(&Token::RParen) {
+                                args.push(self.parse_expr()?);
+                                if self.peek() == Some(&Token::Comma) {
+                                    self.next();
+                                }
+                            }
+                            self.expect_token(Token::RParen)?;
+                            node = Expr::Call {
+                                name: match node {
+                                    Expr::Var(n) => n,
+                                    _ => unreachable!(),
+                                },
+                                args,
+                            };
                         }
+                        Some(Token::LBracket) => {
+                            // 下标
+                            self.next(); // consume '['
+                            let idx = self.parse_expr()?;
+                            self.expect_token(Token::RBracket)?;
+                            node = Expr::Index {
+                                array: Box::new(node),
+                                index: Box::new(idx),
+                            };
+                        }
+                        _ => break,
                     }
-                    self.expect_token(Token::RParen)?;
-                    Expr::Call { name: n, args }
-                } else {
-                    Expr::Var(n)
                 }
+                node
             }
             Some(Token::LParen) => {
                 let e = self.parse_expr()?;
@@ -359,10 +401,17 @@ impl Parser {
             }
             Some(Token::LBracket) => {
                 let mut elems = Vec::new();
-                while !matches!(self.peek(), Some(Token::RBracket)) {
-                    elems.push(self.parse_expr()?);
-                    if matches!(self.peek(), Some(Token::Comma)) {
-                        self.next();
+                // 空数组
+                if self.peek() == Some(&Token::RBracket) {
+                    self.next();
+                    return Ok(Expr::ArrayLiteral(elems));
+                }
+                loop {
+                    let e = self.parse_expr()?;
+                    elems.push(e);
+                    if self.peek() == Some(&Token::Comma) {
+                        self.next(); // consume ','
+                        continue;
                     } else {
                         break;
                     }
@@ -436,7 +485,8 @@ impl Parser {
             }),
         }
     }
-
+    
+    #[deprecated(since = "0.1.1")]
     fn expect_type(&mut self) -> Result<String, PawError> {
         let base = match self.next() {
             Some(Token::Type(n)) => n,

@@ -65,11 +65,9 @@
 ## 变量声明
 
 - **不可变**：`let`
-- **可变**：`var`
 
 ```paw
 let x: Int    = 42
-var y: Float  = 3.14
 
 # 声明式输入
 let name: String <- ask "What's your name?"
@@ -209,10 +207,6 @@ let nums: Array<Int> = [10, 20, 30]
 
 # 访问
 say "first=" + nums[0]
-
-# 修改（可变数组需用 var）
-var arr: Array<String> = ["a", "b", "c"]
-arr[1] = "B"
 ```
 
 > **注意**：数组类型标注为 `Array<元素类型>`，字面量用 `[...]`，索引从 `0` 开始。

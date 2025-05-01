@@ -65,6 +65,13 @@ impl Lexer {
             return Token::Range;
         }
 
+        if c == '[' {
+            return Token::LBracket;
+        }
+        if c == ']' {
+            return Token::RBracket;
+        }
+
         match c {
             '+' => Token::Plus,
             '-' => Token::Minus,
@@ -181,7 +188,7 @@ impl Lexer {
                     // 类型
                     "Int"    | "Long"   | "Float"  | "Double"
                     | "String" | "Char"   | "Bool"   | "Any"
-                    | "Void" => Token::Type(ident),
+                    | "Void" | "Array" => Token::Type(ident),
                     _ => Token::Identifier(ident),
                 }
             }

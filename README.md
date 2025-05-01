@@ -64,11 +64,9 @@ A PawScript program is a sequence of top-level statements: declarations, functio
 ## Variables & Input
 
 - **Immutable**: `let`
-- **Mutable**: `var`
 
 ```paw
 let x: Int    = 42
-var y: Float  = 3.14
 
 # Prompt the user, bind result to `name`
 let name: String <- ask "What's your name?"
@@ -208,10 +206,6 @@ let nums: Array<Int> = [10, 20, 30]
 
 # Access elements
 say "first=" + nums[0]
-
-# Mutable array
-var arr: Array<String> = ["a", "b", "c"]
-arr[1] = "B"
 ```
 
 Type is `Array<ElementType>`. Literals use `[ ... ]`. Zero-based indexing.

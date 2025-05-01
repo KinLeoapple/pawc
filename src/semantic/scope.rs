@@ -22,7 +22,7 @@ pub enum PawType {
 impl PawType {
     /// 从脚本里的类型名字符串解析出 PawType
     pub fn from_str(s: &str) -> Self {
-        if let Some(inner) = s.strip_suffix("[]") {
+        if let Some(inner) = s.strip_prefix("Array<").and_then(|t| t.strip_suffix('>')) {
             PawType::Array(Box::new(PawType::from_str(inner)))
         } else {
             match s {

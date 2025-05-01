@@ -1,9 +1,8 @@
 // src/interpreter.rs
 
-use std::clone;
-use std::cmp::Ordering;
 use crate::ast::{BinaryOp, Expr, Statement, StatementKind};
 use crate::error::PawError;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io::{self, Write};
 
@@ -193,18 +192,24 @@ impl Interpreter {
                 Ok(ExecResult::Normal)
             }
             StatementKind::Ask { name, ty: _, prompt } => {
-                print!("{} ", prompt);
-                io::stdout().flush().unwrap();
-                let mut input = String::new();
-                io::stdin().read_line(&mut input).unwrap();
-                let trimmed = input.trim();
+                print!("{}", prompt);
+                io::stdout().flush()
+                    .map_err(|e| PawError::Internal { message: e.to_string() })?;
+                let mut line = String::new();
+                io::stdin().read_line(&mut line)
+                    .map_err(|e| PawError::Internal { message: e.to_string() })?;
                 // 简化：只支持读字符串
-                self.env.define(name.clone(), Value::String(trimmed.into()));
+                self.env.define(name.clone(), Value::String(line.into()));
                 Ok(ExecResult::Normal)
             }
             StatementKind::AskPrompt(prompt) => {
                 // 仅提示，不保存
-                println!("{}", prompt);
+                print!("{}", prompt);
+                io::stdout().flush()
+                    .map_err(|e| PawError::Internal { message: e.to_string() })?;
+                let mut line = String::new();
+                io::stdin().read_line(&mut line)
+                    .map_err(|e| PawError::Internal { message: e.to_string() })?;
                 Ok(ExecResult::Normal)
             }
             StatementKind::Return(opt) => {
