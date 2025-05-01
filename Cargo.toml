@@ -4,8 +4,8 @@ version     = "0.1.0"
 authors     = ["Kinleoapple"]
 description = "🐾 PawScript compiler: .paw interpret"
 license     = "MIT OR Apache-2.0"
-repository  = "https://github.com/your-org/pawscript"
-homepage    = "https://github.com/your-org/pawscript"
+repository  = "https://github.com/KinLeoapple/pawc"
+homepage    = "https://github.com/KinLeoapple/pawc"
 keywords    = ["pawscript", "compiler", "scripting"]
 edition     = "2021"
 
