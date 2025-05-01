@@ -374,7 +374,7 @@ impl TypeChecker {
                         PawType::Int | PawType::Long | PawType::Float | PawType::Double
                     )
                 };
-                let (l_ty, r_ty) = if numeric(&l_ty) && numeric(&r_ty) {
+                let (l_ty, _r_ty) = if numeric(&l_ty) && numeric(&r_ty) {
                     // 只要有一方是 Double，就提升到 Double；否则有一方是 Float，就提升到 Float；……
                     let promoted = match (&l_ty, &r_ty) {
                         (PawType::Double, _) | (_, PawType::Double) => PawType::Double,
@@ -434,7 +434,7 @@ impl TypeChecker {
                 for arg in args {
                     let _ = self.check_expr(arg)?;
                 }
-                if let Some((mod_name, member)) = name.split_once('.') {
+                if let Some((mod_name, _member)) = name.split_once('.') {
                     if self.scope.lookup(mod_name) == Some(PawType::Module) {
                         return Ok(PawType::Any);
                     }
