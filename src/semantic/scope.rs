@@ -1,7 +1,7 @@
 // src/semantic/scope.rs
 
 use std::collections::HashMap;
-use crate::error::PawError;
+use crate::error::error::PawError;
 
 /// 支持的类型
 #[derive(Clone, Debug, PartialEq)]
@@ -16,6 +16,7 @@ pub enum PawType {
     Void,
     Any,
     Unknown,
+    Module,
     Array(Box<PawType>),
 }
 
@@ -34,6 +35,7 @@ impl PawType {
                 "Char"   => PawType::Char,
                 "String" => PawType::String,
                 "Void"   => PawType::Void,
+                "Module" => PawType::Module,
                 "Any"    => PawType::Any,
                 _        => PawType::Unknown,
             }
@@ -54,6 +56,7 @@ impl std::fmt::Display for PawType {
             String      => write!(f, "String"),
             Void        => write!(f, "Void"),
             Any         => write!(f, "Any"),
+            Module      => write!(f, "Module"),
             Unknown     => write!(f, "Unknown"),
             Array(elem) => write!(f, "Array<{}>", elem),
         }

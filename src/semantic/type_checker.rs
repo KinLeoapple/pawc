@@ -1,9 +1,9 @@
 // src/semantic/type_checker.rs
 
 use crate::ast::{BinaryOp, Expr, Statement, StatementKind};
-use crate::error::PawError;
 use crate::semantic::scope::{PawType, Scope};
 use std::collections::HashSet;
+use crate::error::error::PawError;
 
 fn is_numeric(t: &PawType) -> bool {
     matches!(
@@ -68,6 +68,23 @@ impl TypeChecker {
     /// 检查单条语句
     pub fn check_statement(&mut self, stmt: &Statement) -> Result<(), PawError> {
         match &stmt.kind {
+            StatementKind::Import { alias, .. } => {
+                // 把别名写进当前作用域，类型就是 Module
+                self.scope.define(alias, PawType::Module).map_err(|_| {
+                    PawError::DuplicateDefinition {
+                        name: alias.clone(),
+                    }
+                })?;
+            }
+            StatementKind::Throw(expr) => {
+                // 验证 throw 后面跟的表达式是可转为 String 的类型
+                let ty = self.check_expr(expr)?;
+                if ty != PawType::String && ty != PawType::Any {
+                    return Err(PawError::Type {
+                        message: format!("Cannot bark non-string: {:?}", ty),
+                    });
+                }
+            }
             StatementKind::Let { name, ty, value } => {
                 let expected = PawType::from_str(ty);
                 let actual = self.check_expr(value)?;
@@ -212,31 +229,10 @@ impl TypeChecker {
                 self.throwing_functions.extend(fun_scope.throwing_functions);
                 self.current_fn = prev;
             }
-            StatementKind::Throw(expr) => {
-                // 标记当前函数可抛
-                if let Some(f) = &self.current_fn {
-                    self.throwing_functions.insert(f.clone());
-                }
-                // 并继续检查 expr 本身
-                self.check_expr(expr)?;
-            }
 
             StatementKind::Block(stmts) => {
                 let mut nested = TypeChecker::with_parent(&self.scope);
                 nested.check_statements(stmts)?;
-            }
-            // bark <expr>
-            StatementKind::Throw(expr) => {
-                // 类型检查抛出表达式，本质上只需能转为字符串或 Any
-                let ty = self.check_expr(expr)?;
-                if ty != PawType::String && ty != PawType::Any {
-                    return Err(PawError::Type {
-                        message: format!(
-                            "Type mismatch in `bark`: expected String or Any, found {}",
-                            ty
-                        ),
-                    });
-                }
             }
 
             // sniff { … } snatch (e) { … } [lastly { … }]
@@ -350,6 +346,18 @@ impl TypeChecker {
                 }
             }
 
+            Expr::Property { object, name } => {
+                let obj_ty = self.check_expr(object)?;
+                match obj_ty {
+                    PawType::Module => Ok(PawType::Any),
+                    PawType::Array(_) if name == "length" => Ok(PawType::Int),
+                    PawType::String if name == "length" => Ok(PawType::Int),
+                    _ => Err(PawError::Type {
+                        message: format!("Cannot access property {:?} on {:?}", obj_ty, name),
+                    }),
+                }
+            }
+
             Expr::BinaryOp { left, op, right } => {
                 let l_ty = self.check_expr(left)?;
                 let r_ty = self.check_expr(right)?;
@@ -409,11 +417,29 @@ impl TypeChecker {
                 .lookup(name)
                 .ok_or_else(|| PawError::UndefinedVariable { name: name.clone() }),
 
+            Expr::Property { object, name: _ } => {
+                let obj_ty = self.check_expr(object)?;
+                match obj_ty {
+                    PawType::String => Ok(PawType::Any),
+                    PawType::Array(_) => Ok(PawType::Any), // length 之类
+                    PawType::Module => Ok(PawType::Any),   // m.square、m.PI …
+                    _ => Err(PawError::Type {
+                        message: format!("Type {:?} has no properties", obj_ty),
+                    }),
+                }
+            }
+
             Expr::Call { name, args } => {
                 // 函数调用：先检查参数，再返回预注册的签名
                 for arg in args {
                     let _ = self.check_expr(arg)?;
                 }
+                if let Some((mod_name, member)) = name.split_once('.') {
+                    if self.scope.lookup(mod_name) == Some(PawType::Module) {
+                        return Ok(PawType::Any);
+                    }
+                }
+                // 否则按原逻辑报未定义
                 self.scope
                     .lookup(name)
                     .ok_or_else(|| PawError::UndefinedVariable { name: name.clone() })

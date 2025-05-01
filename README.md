@@ -1,70 +1,74 @@
-# 🐾 PawScript Beginner’s Guide
+# 🐾 PawScript Beginner Guide
 
-Welcome to **PawScript**—a cute yet practical, statically-typed, functional-style scripting language. This README covers all syntax through v0.1, plus new **Type Casting** and **Exception Handling** sections.
+Welcome to **PawScript**—a “cute yet practical” statically-typed, functional-style scripting language. This README covers all syntax through v0.1, including the three new features: **type casts**, **exception handling**, and **module import**.
 
 ---
 
 ## Table of Contents
 
-1. [Installation & Running](#installation--running)
-2. [Basic Structure](#basic-structure)
-3. [Data Types](#data-types)
-4. [Variable Declaration](#variable-declaration)
-5. [Expressions](#expressions)
-6. [Statements](#statements)
-7. [Control Flow](#control-flow)
-8. [Functions](#functions)
-9. [Arrays](#arrays)
-10. [Type Casting](#type-casting)
-11. [Comments](#comments)
-12. [Exception Handling](#exception-handling)
-13. [Complete Example](#complete-example)
+1. [Installation & Run](#installation--run)  
+2. [Basic Structure](#basic-structure)  
+3. [Data Types](#data-types)  
+4. [Variable Declaration](#variable-declaration)  
+5. [Expressions](#expressions)  
+6. [Statements](#statements)  
+7. [Control Flow](#control-flow)  
+8. [Functions](#functions)  
+9. [Arrays](#arrays)  
+10. [Type Casting](#type-casting)  
+11. [Comments](#comments)  
+12. [Exception Handling](#exception-handling)  
+13. [Module Import](#module-import)  
+14. [Complete Example](#complete-example)  
 
 ---
 
-## 1. Installation & Running
+## 1. Installation & Run
 
-1. **Clone & build**:
+1. Clone & build:
    ```bash
    git clone https://github.com/KinLeoapple/pawc.git
    cd pawc
    cargo build --release
    ```
-2. **Interpret**:
+2. Run a script:
    ```bash
-   target/release/pawc run hello.paw
+   target/release/pawc hello.paw
    ```
 
 ---
 
 ## 2. Basic Structure
 
-A script is a series of statements or function declarations. Execution starts at the top and runs sequentially.
+A PawScript program is a sequence of statements and function declarations. Execution starts at the top and runs each statement in order.
 
 ---
 
 ## 3. Data Types
 
-- **Primitive**: `Int`, `Float`, `Bool`, `Char`, `String`
+- **Primitive**:
+   - Integer types: `Int`, `Long`
+   - Floating-point types: `Float`, `Double`
+   - Others: `Bool`, `Char`, `String`
 - **Generic**: `Array<T>`
-- **Dynamic**: `Any`
+- **Special**: `Any` (dynamic)
 
 ---
 
 ## 4. Variable Declaration
 
 ```paw
-let x: Int = 10       # immutable binding
-x = x + 1             # assignment (variable)
+let x: Int = 10
+x = x + 1           # reassignment
 ```
 
 ---
 
 ## 5. Expressions
 
-- Arithmetic: `+` `-` `*` `/` `%`
-- Comparison: `==` `!=` `<` `<=` `>` `>=`
-- Logical: `&&` `||` `!`
+- Arithmetic: `+`, `-`, `*`, `/`, `%`
+- Comparison: `==`, `!=`, `<`, `<=`, `>`, `>=`
+- Logical: `&&`, `||`, `!`
 - String concat: `"Hi " + name + "!"`
 - Grouping: `(a + b) * c`
 
@@ -72,9 +76,9 @@ x = x + 1             # assignment (variable)
 
 ## 6. Statements
 
-- Declaration/assignment: `let` / then `=`
-- Print: `say <expr>`
-- Input: `ask <string>` or `let x: String <- ask "?"`
+- Declaration / assignment: `let` / `=`
+- Output: `say <expr>`
+- Input: `ask <"prompt">` or `let x: String <- ask "?"`
 - Return: `return <expr>` or `return`
 
 ---
@@ -100,7 +104,7 @@ loop i in start..end { … }
 ## 8. Functions
 
 ```paw
-fun name(param1: Int, param2: Float): String {
+fun name(a: Int, b: Float): String {
   return "…"
 }
 let s: String = name(1, 2.5)
@@ -124,13 +128,13 @@ Use `as` for explicit casts:
 
 ```paw
 let i: Int = 3
-let f: Float = i as Float     # Int → Float
+let f: Float = i as Float   # Int → Float
 say f + 1.5
 ```
 
-- Numeric widening (Int⇄Float)
-- Same-type casts are no-ops
-- Incompatible casts (String→Int) are compile-time errors
+- Numeric ↔ numeric (Int, Long, Float, Double)
+- Casting to same type is no-op
+- Invalid casts (e.g. String→Int) are compile errors
 
 ---
 
@@ -138,21 +142,19 @@ say f + 1.5
 
 ```paw
 # single-line comment
-let x: Int = 5   # end-of-line comment
+let x: Int = 5   # trailing comment
 ```
 
 ---
 
 ## 12. Exception Handling
 
-Keywords:
-
-| Keyword   | Role                             |
-|-----------|----------------------------------|
-| `bark`    | throw an exception               |
-| `sniff`   | begin try block                  |
-| `snatch`  | catch block (binds exception var)|
-| `lastly`  | finally block (always executes)  |
+| Keyword   | Role                           |
+|----------|--------------------------------|
+| `bark`    | throw                          |
+| `sniff`   | try                            |
+| `snatch`  | catch (binds exception name)   |
+| `lastly`  | finally                        |
 
 ### Throw
 
@@ -160,61 +162,95 @@ Keywords:
 bark "error message"
 ```
 
-Immediately jumps to nearest `snatch`.
+Immediately jumps to nearest `snatch` block.
 
-### Catch
+### Try-Catch-Finally
 
 ```paw
 sniff {
-  …        # try block
+  …            # try block
 } snatch (e) {
-  …        # catch block, e is the error message
+  say "Caught: " + e
 } lastly {
-  …        # finally block
+  say "Cleanup"
 }
 ```
-
-- If no `bark`, `snatch` is skipped; `lastly` still runs
-- If `bark`, executes `snatch` then `lastly`
 
 ---
 
-## 13. Complete Example
+## 13. Module Import
+
+PawScript can import other `.paw` scripts as modules, with optional aliases.
+
+### Syntax
 
 ```paw
-# reciprocal throws on zero, uses cast
+import foo.bar.baz           # imports foo/bar/baz.paw, alias “baz”
+import utils.math as m       # imports utils/math.paw, alias “m”
+```
+
+- **module**: dot-separated identifiers → path `module.join("/") + ".paw"`
+- Optional `as alias`: access prefix; defaults to last path segment
+
+### Accessing Members
+
+- Use property or call syntax on the alias:
+  ```paw
+  say "square(5) = " + m.square(5)
+  say "PI = " + utils.math.PI    # if no alias used
+  ```
+- All top-level functions and variables of the imported script become members of that module namespace.
+
+---
+
+## 14. Complete Example
+
+```paw
+# import modules
+import utils.math as m
+import string
+
+# Module tests
+say "=== Module tests ==="
+say "square(5) = " + m.square(5)
+say "cube(3)   = " + m.cube(3)
+
+# Array & indexing tests
+say "\n=== Array & indexing tests ==="
+let a: Array<Int> = [10,20,30,40]
+say "a[0] = " + a[0]
+say "a[2] = " + a[2]
+say "a.length = " + a.length
+
+# String module tests
+say "\n=== String module tests ==="
+let name: String = "PawScript"
+say "length(name) = " + string.length(name)
+say string.shout(name)
+
+# Exception & type casting tests
 fun reciprocal(x: Int): Float {
-    if x == 0 {
-        bark "division by zero"      # throw
-    }
-    return 1.0 / (x as Float)        # cast
+  if x == 0 {
+    bark "division by zero"
+  }
+  return 1.0 / x
 }
 
 sniff {
-    say "Calling reciprocal(2)…"
-    let a: Float = reciprocal(2)
-    say "Result: " + a
-
-    say "Calling reciprocal(0)…"
-    let b: Float = reciprocal(0)    # throws → jumps to snatch
-    say "Won’t run"
+  say "reciprocal(2) = " + reciprocal(2)
+  say "reciprocal(0) = " + reciprocal(0)
 } snatch (err) {
-    say "Caught error: " + err       # catch
+  say "Caught error: " + err
 } lastly {
-    say "Cleanup done"
+  say "Done exception test"
 }
 
-say "Done."
+# Type casting
+let i: Int = 7
+say "i as Float = " + (i as Float)
+say "i as Double = " + (i as Double)
 ```
 
-**Expected output:**
-```
-Calling reciprocal(2)…
-Result: 0.5
-Calling reciprocal(0)…
-Caught error: division by zero
-Cleanup done
-Done.
-```  
+---
 
-Enjoy PawScript! For bootstrapping and extension, see the source.
+Happy scripting!

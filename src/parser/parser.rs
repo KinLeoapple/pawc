@@ -1,7 +1,7 @@
 // src/parser.rs
 
 use crate::ast::{BinaryOp, Expr, Param, Statement, StatementKind};
-use crate::error::PawError;
+use crate::error::error::PawError;
 use crate::lexer::token::Token;
 
 pub struct Parser {
@@ -54,6 +54,9 @@ impl Parser {
             }
         }
 
+        if self.peek_keyword("import") {
+            return self.parse_import_statement();
+        }
         match self.peek() {
             Some(Token::Keyword(kw)) => match kw.as_str() {
                 "let" => self.parse_let_statement(),
@@ -73,12 +76,12 @@ impl Parser {
                 "fun" => self.parse_fun_statement(),
                 "bark" => self.parse_throw(),
                 "sniff" => self.parse_try_catch_finally(),
-                "snatch" => {
-                    Err(PawError::Syntax { message: "`snatch` cannot appear alone".into() })
-                },
-                "lastly" => {
-                    Err(PawError::Syntax { message: "`lastly` cannot appear alone".into() })
-                },
+                "snatch" => Err(PawError::Syntax {
+                    message: "`snatch` cannot appear alone".into(),
+                }),
+                "lastly" => Err(PawError::Syntax {
+                    message: "`lastly` cannot appear alone".into(),
+                }),
                 _ => self.parse_expr_statement(),
             },
             Some(Token::LBrace) => {
@@ -265,6 +268,37 @@ impl Parser {
         Ok(stmts)
     }
 
+    /// parse `import foo.bar.baz [as alias]`
+    fn parse_import_statement(&mut self) -> Result<Statement, PawError> {
+        self.expect_keyword("import")?;
+        // 1. 读取 module 路径段
+        let mut module = Vec::new();
+        loop {
+            match self.next() {
+                Some(Token::Identifier(seg)) => module.push(seg),
+                other => {
+                    return Err(PawError::Syntax {
+                        message: format!("Expected module path segment, got {:?}", other),
+                    })
+                }
+            }
+            if self.peek() == Some(&Token::Dot) {
+                self.next();
+                continue;
+            }
+            break;
+        }
+        // 2. 可选 alias：如果看到关键字 "as"，就读下一个 identifier
+        let alias = if self.peek_keyword("as") {
+            self.next(); // consume "as"
+            self.expect_identifier()? // read alias name
+        } else {
+            // 默认取 module 最后一段
+            module.last().cloned().unwrap_or_default()
+        };
+        Ok(Statement::new(StatementKind::Import { module, alias }))
+    }
+
     /// 解析一个类型标注，支持泛型写法，如 Array<Int>
     fn parse_type(&mut self) -> Result<String, PawError> {
         // 必须是一个 Token::Type，比如 "Int" 或者刚才改好的 "Array"
@@ -278,9 +312,9 @@ impl Parser {
         };
         // 如果紧跟一个 '<'，则递归解析内部类型，直到 '>'
         if let Some(Token::Lt) = self.peek() {
-            self.next();                     // 消费 '<'
-            let inner = self.parse_type()?;  // 递归
-            self.expect_token(Token::Gt)?;   // 消费 '>'
+            self.next(); // 消费 '<'
+            let inner = self.parse_type()?; // 递归
+            self.expect_token(Token::Gt)?; // 消费 '>'
             Ok(format!("{}<{}>", base, inner))
         } else {
             Ok(base)
@@ -315,10 +349,13 @@ impl Parser {
         };
 
         Ok(Statement::new(StatementKind::TryCatchFinally {
-            body, err_name, handler, finally
+            body,
+            err_name,
+            handler,
+            finally,
         }))
     }
-    
+
     pub fn parse_expr(&mut self) -> Result<Expr, PawError> {
         self.parse_binary_expr(0)
     }
@@ -335,7 +372,10 @@ impl Parser {
                     // 右侧必须是一个类型字面
                     let ty = self.parse_type()?;
                     // 直接构造 Cast 节点
-                    left = Expr::Cast { expr: Box::new(left), ty };
+                    left = Expr::Cast {
+                        expr: Box::new(left),
+                        ty,
+                    };
                     // 继续尝试更低优先级的操作
                     continue;
                 }
@@ -343,21 +383,21 @@ impl Parser {
 
             // 然后处理其它二元运算
             let (prec, right_assoc, op_kind) = match tok {
-                Token::Plus    => (6, false, BinaryOp::Add),
-                Token::Minus   => (6, false, BinaryOp::Sub),
-                Token::Star    => (7, false, BinaryOp::Mul),
-                Token::Slash   => (7, false, BinaryOp::Div),
+                Token::Plus => (6, false, BinaryOp::Add),
+                Token::Minus => (6, false, BinaryOp::Sub),
+                Token::Star => (7, false, BinaryOp::Mul),
+                Token::Slash => (7, false, BinaryOp::Div),
                 Token::Percent => (7, false, BinaryOp::Mod),
 
-                Token::EqEq    => (5, false, BinaryOp::EqEq),
-                Token::NotEq   => (5, false, BinaryOp::NotEq),
-                Token::Lt      => (5, false, BinaryOp::Lt),
-                Token::Le      => (5, false, BinaryOp::Le),
-                Token::Gt      => (5, false, BinaryOp::Gt),
-                Token::Ge      => (5, false, BinaryOp::Ge),
+                Token::EqEq => (5, false, BinaryOp::EqEq),
+                Token::NotEq => (5, false, BinaryOp::NotEq),
+                Token::Lt => (5, false, BinaryOp::Lt),
+                Token::Le => (5, false, BinaryOp::Le),
+                Token::Gt => (5, false, BinaryOp::Gt),
+                Token::Ge => (5, false, BinaryOp::Ge),
 
-                Token::AndAnd  => (4, false, BinaryOp::And),
-                Token::OrOr    => (3, false, BinaryOp::Or),
+                Token::AndAnd => (4, false, BinaryOp::And),
+                Token::OrOr => (3, false, BinaryOp::Or),
 
                 _ => break,
             };
@@ -408,7 +448,7 @@ impl Parser {
             Some(Token::IntLiteral(n)) => Expr::LiteralInt(n),
             Some(Token::LongLiteral(n)) => Expr::LiteralLong(n),
             Some(Token::FloatLiteral(f)) => Expr::LiteralFloat(f),
-            Some(Token::BoolLiteral(b))   => Expr::LiteralBool(b),
+            Some(Token::BoolLiteral(b)) => Expr::LiteralBool(b),
             Some(Token::StringLiteral(s)) => Expr::LiteralString(s),
             Some(Token::CharLiteral(c)) => Expr::LiteralChar(c),
             Some(Token::Identifier(n)) => {
@@ -481,29 +521,69 @@ impl Parser {
                 });
             }
         };
-
         loop {
-            expr = match self.peek() {
+            match self.peek() {
+                // function call: ( … )
+                Some(Token::LParen) => {
+                    self.next(); // consume '('
+                    let mut args = Vec::new();
+                    while self.peek() != Some(&Token::RParen) {
+                        args.push(self.parse_expr()?);
+                        if self.peek() == Some(&Token::Comma) {
+                            self.next();
+                        }
+                    }
+                    self.expect_token(Token::RParen)?;
+                    // turn the current node into a call
+                    // if it was a property, splice together "module.fn"
+                    let func_name = match expr {
+                        Expr::Var(ref n) => n.clone(),
+                        Expr::Property {
+                            ref object,
+                            ref name,
+                        } => {
+                            if let Expr::Var(ref m) = **object {
+                                format!("{}.{}", m, name)
+                            } else {
+                                return Err(PawError::Syntax {
+                                    message: "Can only call simple module members".into(),
+                                });
+                            }
+                        }
+                        _ => {
+                            return Err(PawError::Syntax {
+                                message: "Unexpected call target".into(),
+                            })
+                        }
+                    };
+                    expr = Expr::Call {
+                        name: func_name,
+                        args,
+                    };
+                }
+                // array indexing: [ … ]
                 Some(Token::LBracket) => {
                     self.next();
                     let idx = self.parse_expr()?;
                     self.expect_token(Token::RBracket)?;
-                    Expr::Index {
+                    expr = Expr::Index {
                         array: Box::new(expr),
                         index: Box::new(idx),
-                    }
+                    };
                 }
+                // property access: .name
                 Some(Token::Dot) => {
                     self.next();
                     let prop = self.expect_identifier()?;
-                    Expr::Property {
+                    expr = Expr::Property {
                         object: Box::new(expr),
                         name: prop,
-                    }
+                    };
                 }
-                _ => break Ok(expr),
+                _ => break,
             }
         }
+        Ok(expr)
     }
 
     // --- helpers ---
@@ -541,7 +621,7 @@ impl Parser {
             }),
         }
     }
-    
+
     #[deprecated(since = "0.1.1")]
     fn expect_type(&mut self) -> Result<String, PawError> {
         let base = match self.next() {

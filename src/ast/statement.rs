@@ -62,6 +62,11 @@ pub enum StatementKind {
         handler: Vec<Statement>,
         finally: Vec<Statement>,
     },
+
+    Import {
+        module: Vec<String>,
+        alias: String,
+    },
 }
 
 /// 语句

@@ -1,10 +1,12 @@
 // src/interpreter.rs
 
 use crate::ast::{BinaryOp, Expr, Statement, StatementKind};
-use crate::error::PawError;
+use crate::lexer::lex::Lexer;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io::{self, Write};
+use crate::error::error::PawError;
+use crate::parser::parser::Parser;
 
 /// 运行时值
 #[derive(Debug, Clone)]
@@ -22,6 +24,7 @@ pub enum Value {
         // 闭包时捕获的外部环境
         env: Env,
     },
+    Module(HashMap<String, Value>),
     Void, // return; 时使用
 }
 
@@ -186,6 +189,40 @@ impl Interpreter {
     /// 执行单条语句
     fn exec_stmt(&mut self, stmt: &Statement) -> Result<ExecResult, PawError> {
         match &stmt.kind {
+            StatementKind::Import { module, alias } => {
+                // 构造文件名并读取
+                let mut path = std::path::PathBuf::new();
+                for seg in module {
+                    path.push(seg);
+                }
+                path.set_extension("paw");
+                let src = std::fs::read_to_string(&path).map_err(|e| PawError::Internal {
+                    message: format!("cannot import {:?}: {}", path, e),
+                })?;
+
+                // 重新编译运行子模块
+                let tokens = Lexer::new(&src).tokenize();
+                let mut p = Parser::new(tokens);
+                let ast = p.parse_program()?;
+                let mut tc = crate::semantic::type_checker::TypeChecker::new();
+                tc.check_statements(&ast)?;
+                let mut sub = Interpreter::new();
+                sub.run(&ast)?;
+
+                // 把子模块顶层符号收集到一个 map
+                let mut module_map = HashMap::new();
+                for scope in &sub.env.scopes {
+                    for (k, v) in scope {
+                        module_map.insert(k.clone(), v.clone());
+                        // 同时也可扁平绑定 alias.k
+                        let full = format!("{}.{}", alias, k);
+                        self.env.define(full, v.clone());
+                    }
+                }
+                // 最关键：给 alias 自身绑定一个 Module 值
+                self.env.define(alias.clone(), Value::Module(module_map));
+                Ok(ExecResult::Normal)
+            }
             StatementKind::Let { name, ty: _, value } => {
                 let v = self.eval_expr(value)?;
                 self.env.define(name.clone(), v);
@@ -543,10 +580,20 @@ impl Interpreter {
             }
             Expr::Call { name, args } => {
                 // 取出函数值
-                let f = self
-                    .env
-                    .get(name)
-                    .ok_or_else(|| PawError::UndefinedVariable { name: name.clone() })?;
+                let f = if let Some(f) = self.env.get(name) {
+                    f
+                } else if let Some((mod_name, member)) = name.split_once('.') {
+                    // 再试 “模块.成员” 形式：先拿模块值，再从它的 table 里取成员
+                    match self.env.get(mod_name) {
+                        Some(Value::Module(table)) => table
+                            .get(member)
+                            .cloned()
+                            .ok_or_else(|| PawError::UndefinedVariable { name: name.clone() })?,
+                        _ => return Err(PawError::UndefinedVariable { name: name.clone() }),
+                    }
+                } else {
+                    return Err(PawError::UndefinedVariable { name: name.clone() });
+                };
                 if let Value::Function {
                     params,
                     body,
@@ -567,9 +614,21 @@ impl Interpreter {
                         let v = self.eval_expr(arg)?;
                         sub.env.define(p.clone(), v);
                     }
-                    match sub.exec_block(&body)? {
-                        ExecResult::Return(v) => Ok(v),
-                        _ => Ok(Value::Void),
+                    let res = sub.exec_block(&body)?;
+                    // 如果中途有显式 return，就返回它
+                    if let ExecResult::Return(v) = res {
+                        Ok(v)
+                    } else {
+                        // 否则尝试隐式返回最后一条 Expr 语句的值
+                        if let Some(last_stmt) = body.last() {
+                            if let StatementKind::Expr(expr) = &last_stmt.kind {
+                                sub.eval_expr(expr)
+                            } else {
+                                Ok(Value::Void)
+                            }
+                        } else {
+                            Ok(Value::Void)
+                        }
                     }
                 } else {
                     Err(PawError::Type {
@@ -606,19 +665,24 @@ impl Interpreter {
                 }
             }
             Expr::Property { object, name } => {
-                let o = self.eval_expr(object)?;
-                if name == "length" {
-                    if let Value::Array(v) = o {
-                        Ok(Value::Int(v.len() as i32))
-                    } else {
-                        Err(PawError::Type {
-                            message: "Not an array".into(),
-                        })
-                    }
-                } else {
-                    Err(PawError::Type {
-                        message: format!("Unknown property {}", name),
-                    })
+                let obj_val = self.eval_expr(object)?;
+                match obj_val {
+                    // （1）数组喝字符串的 length
+                    Value::Array(v) if name == "length" => Ok(Value::Int(v.len() as i32)),
+                    Value::String(v) if name == "length" => Ok(Value::Int(v.len() as i32)),
+
+                    // （2）模块导出的成员：m.square / m.PI / …
+                    Value::Module(table) => table
+                        .get(name) // 查表
+                        .cloned()
+                        .ok_or_else(|| PawError::UndefinedVariable {
+                            name: format!("{}.{}", "<module>", name),
+                        }),
+
+                    // 其他类型暂不支持属性访问
+                    _ => Err(PawError::Type {
+                        message: format!("Type {:?} has no property `{}`", obj_val, name),
+                    }),
                 }
             }
         }

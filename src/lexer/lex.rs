@@ -84,6 +84,7 @@ impl Lexer {
             '}' => Token::RBrace,
             ',' => Token::Comma,
             ':' => Token::Colon,
+            '.' => Token::Dot,
             '=' => {
                 if self.peek_char() == Some('=') {
                     self.next_char();
@@ -113,16 +114,16 @@ impl Lexer {
             }
             '&' => {
                 if self.peek_char() == Some('&') {
-                    self.next_char();   // 消费第二个 '&'
-                    Token::AndAnd       // 返回 &&
+                    self.next_char(); // 消费第二个 '&'
+                    Token::AndAnd // 返回 &&
                 } else {
                     Token::Error("Unexpected character: &".to_string())
                 }
             }
             '|' => {
                 if self.peek_char() == Some('|') {
-                    self.next_char();   // 消费第二个 '|'
-                    Token::OrOr         // 返回 ||
+                    self.next_char(); // 消费第二个 '|'
+                    Token::OrOr // 返回 ||
                 } else {
                     Token::Error("Unexpected character: |".to_string())
                 }
@@ -146,11 +147,33 @@ impl Lexer {
                 return self.next_token();
             }
             '"' => {
-                // 字符串字面量
+                // 字符串字面量 —— 支持转义
                 let mut s = String::new();
                 while let Some(nc) = self.next_char() {
                     if nc == '"' {
                         break;
+                    }
+                    if nc == '\\' {
+                        // 处理转义字符
+                        if let Some(esc) = self.next_char() {
+                            match esc {
+                                'n' => s.push('\n'),
+                                't' => s.push('\t'),
+                                'r' => s.push('\r'),
+                                '\\' => s.push('\\'),
+                                '"' => s.push('"'),
+                                other => {
+                                    // 不认识的转义就原样保留
+                                    s.push('\\');
+                                    s.push(other);
+                                }
+                            }
+                            continue;
+                        } else {
+                            // 反斜杠结尾，算它字面
+                            s.push('\\');
+                            break;
+                        }
                     }
                     s.push(nc);
                 }
@@ -177,17 +200,15 @@ impl Lexer {
                     }
                 }
                 match ident.as_str() {
-                    "true"  => Token::BoolLiteral(true),
+                    "true" => Token::BoolLiteral(true),
                     "false" => Token::BoolLiteral(false),
-                    
+
                     // 关键字
-                    "fun" | "let" | "say" | "ask" | "as"
-                    | "if"  | "else"| "loop"| "forever"
-                    | "return" | "break" | "continue" | "in" | 
-                    "bark" | "sniff" | "snatch" | "lastly" => Token::Keyword(ident),
+                    "import" | "fun" | "let" | "say" | "ask" | "as" | "if" | "else" | "loop"
+                    | "forever" | "return" | "break" | "continue" | "in" | "bark" | "sniff"
+                    | "snatch" | "lastly" => Token::Keyword(ident),
                     // 类型
-                    "Int"    | "Long"   | "Float"  | "Double"
-                    | "String" | "Char"   | "Bool"   | "Any"
+                    "Int" | "Long" | "Float" | "Double" | "String" | "Char" | "Bool" | "Any"
                     | "Void" | "Array" => Token::Type(ident),
                     _ => Token::Identifier(ident),
                 }
