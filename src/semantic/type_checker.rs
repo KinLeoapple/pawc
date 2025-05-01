@@ -3,10 +3,20 @@
 use crate::ast::{BinaryOp, Expr, Statement, StatementKind};
 use crate::error::PawError;
 use crate::semantic::scope::{PawType, Scope};
+use std::collections::HashSet;
+
+fn is_numeric(t: &PawType) -> bool {
+    matches!(
+        t,
+        PawType::Int | PawType::Long | PawType::Float | PawType::Double
+    )
+}
 
 /// 静态类型检查器
 pub struct TypeChecker {
     pub scope: Scope,
+    pub throwing_functions: HashSet<String>,
+    current_fn: Option<String>,
 }
 
 impl TypeChecker {
@@ -14,6 +24,8 @@ impl TypeChecker {
     pub fn new() -> Self {
         TypeChecker {
             scope: Scope::new(),
+            throwing_functions: HashSet::new(),
+            current_fn: None,
         }
     }
 
@@ -21,6 +33,8 @@ impl TypeChecker {
     pub fn with_parent(parent: &Scope) -> Self {
         TypeChecker {
             scope: Scope::with_parent(&parent.clone()),
+            throwing_functions: HashSet::new(),
+            current_fn: None,
         }
     }
 
@@ -170,11 +184,14 @@ impl TypeChecker {
             }
 
             StatementKind::FunDecl {
-                name: _,
+                name,
                 params,
                 return_type: _,
                 body,
             } => {
+                // 进入新函数
+                let prev = self.current_fn.clone();
+                self.current_fn = Some(name.clone());
                 // 函数本身已经在第一阶段预注册了签名，这里只检查函数体
                 let mut fun_scope = TypeChecker::with_parent(&self.scope);
                 for p in params {
@@ -186,11 +203,66 @@ impl TypeChecker {
                     })?;
                 }
                 fun_scope.check_statements(body)?;
+                // 把子检查器发现的 throwing_functions 合并回来
+                if let Some(fns) = &fun_scope.current_fn {
+                    if fun_scope.throwing_functions.contains(fns) {
+                        self.throwing_functions.insert(fns.clone());
+                    }
+                }
+                self.throwing_functions.extend(fun_scope.throwing_functions);
+                self.current_fn = prev;
+            }
+            StatementKind::Throw(expr) => {
+                // 标记当前函数可抛
+                if let Some(f) = &self.current_fn {
+                    self.throwing_functions.insert(f.clone());
+                }
+                // 并继续检查 expr 本身
+                self.check_expr(expr)?;
             }
 
             StatementKind::Block(stmts) => {
                 let mut nested = TypeChecker::with_parent(&self.scope);
                 nested.check_statements(stmts)?;
+            }
+            // bark <expr>
+            StatementKind::Throw(expr) => {
+                // 类型检查抛出表达式，本质上只需能转为字符串或 Any
+                let ty = self.check_expr(expr)?;
+                if ty != PawType::String && ty != PawType::Any {
+                    return Err(PawError::Type {
+                        message: format!(
+                            "Type mismatch in `bark`: expected String or Any, found {}",
+                            ty
+                        ),
+                    });
+                }
+            }
+
+            // sniff { … } snatch (e) { … } [lastly { … }]
+            StatementKind::TryCatchFinally {
+                body,
+                err_name,
+                handler,
+                finally,
+            } => {
+                // —— 检 try(sniff) 块 ——
+                let mut try_sc = TypeChecker::with_parent(&self.scope);
+                try_sc.check_statements(body)?;
+
+                // —— 检 catch(snatch) 块 ——
+                let mut catch_sc = TypeChecker::with_parent(&self.scope);
+                catch_sc
+                    .scope
+                    .define(err_name, PawType::String)
+                    .map_err(|_| PawError::DuplicateDefinition {
+                        name: err_name.clone(),
+                    })?;
+                catch_sc.check_statements(handler)?;
+
+                // —— 检 finally(lastly) 块 ——
+                let mut fin_sc = TypeChecker::with_parent(&self.scope);
+                fin_sc.check_statements(finally)?;
             }
         }
         Ok(())
@@ -198,6 +270,24 @@ impl TypeChecker {
 
     /// 计算表达式的静态类型
     pub fn check_expr(&mut self, expr: &Expr) -> Result<PawType, PawError> {
+        if let Expr::Cast { expr: inner, ty } = expr {
+            // 检查子表达式是否本身类型合法
+            let _inner_ty = self.check_expr(inner)?;
+            // 目标类型
+            let target = PawType::from_str(ty);
+            // 允许数值间一切转换，或 same→same，或 any→任何
+            return if target == PawType::Any
+                || _inner_ty == target
+                || (is_numeric(&_inner_ty) && is_numeric(&target))
+            {
+                Ok(target)
+            } else {
+                Err(PawError::Type {
+                    message: format!("Cannot cast {} to {}", _inner_ty, target),
+                })
+            };
+        }
+
         match expr {
             Expr::LiteralInt(_) => Ok(PawType::Int),
             Expr::LiteralLong(_) => Ok(PawType::Long),
@@ -269,11 +359,30 @@ impl TypeChecker {
                     return Ok(PawType::String);
                 }
 
-                if l_ty != r_ty {
+                // 如果两侧都是数值类型但不相同，则做“提升”：
+                let numeric = |t: &PawType| {
+                    matches!(
+                        t,
+                        PawType::Int | PawType::Long | PawType::Float | PawType::Double
+                    )
+                };
+                let (l_ty, r_ty) = if numeric(&l_ty) && numeric(&r_ty) {
+                    // 只要有一方是 Double，就提升到 Double；否则有一方是 Float，就提升到 Float；……
+                    let promoted = match (&l_ty, &r_ty) {
+                        (PawType::Double, _) | (_, PawType::Double) => PawType::Double,
+                        (PawType::Float, _) | (_, PawType::Float) => PawType::Float,
+                        (PawType::Long, _) | (_, PawType::Long) => PawType::Long,
+                        _ => PawType::Int,
+                    };
+                    (promoted.clone(), promoted)
+                } else if l_ty != r_ty {
                     return Err(PawError::Type {
                         message: format!("Type mismatch in binary op: {} vs {}", l_ty, r_ty),
                     });
-                }
+                } else {
+                    (l_ty.clone(), r_ty.clone())
+                };
+
                 let result_ty = match op {
                     BinaryOp::Add
                     | BinaryOp::Sub

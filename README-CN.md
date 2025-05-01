@@ -1,256 +1,225 @@
 # 🐾 PawScript 新手指南
 
-欢迎使用 **PawScript** —— 一门「可爱又实用」、支持静态类型、函数式语法风格的脚本语言。本 README 覆盖截至 v0.1 的所有语法要素和风格规范。
+欢迎使用 **PawScript** —— 一门「可爱又实用」、支持静态类型、函数式风格的脚本语言。本 README 覆盖截至 v0.1 的所有语法要素，新增「类型转换」和「异常处理」两大模块。
 
 ---
 
 ## 目录
 
-1. [安装与运行](#安装与运行)  
-2. [基本结构](#基本结构)  
-3. [数据类型](#数据类型)  
-4. [变量声明](#变量声明)  
-5. [表达式](#表达式)  
-6. [语句](#语句)  
-7. [控制流](#控制流)  
-8. [函数](#函数)  
-9. [数组](#数组)  
-10. [注释](#注释)  
-11. [完整示例](#完整示例)
+1. [安装与运行](#安装与运行)
+2. [基本结构](#基本结构)
+3. [数据类型](#数据类型)
+4. [变量声明](#变量声明)
+5. [表达式](#表达式)
+6. [语句](#语句)
+7. [控制流](#控制流)
+8. [函数](#函数)
+9. [数组](#数组)
+10. [类型转换](#类型转换)
+11. [注释](#注释)
+12. [异常处理](#异常处理)
+13. [完整示例](#完整示例)
 
 ---
 
-## 安装与运行
+## 1. 安装与运行
 
-1. 克隆仓库并进入目录：  
+1. 克隆仓库并编译：
    ```bash
    git clone https://github.com/KinLeoapple/pawc.git
    cd pawc
-   ```
-2. 编译并运行（解释器模式）：
-   ```bash
-   cargo run -- path/to/script.paw
-   ```
-3. 或者构建可执行 `pawc`：
-   ```bash
    cargo build --release
-   ./target/release/pawc path/to/script.paw
+   ```
+2. 解释执行：
+   ```bash
+   target/release/pawc run hello.paw
    ```
 
 ---
 
-## 基本结构
+## 2. 基本结构
 
-一个 PawScript 程序本质上是一系列顶层语句（`Statement`），可以是变量/常量声明、函数定义、流程控制等。  
-执行流程自上而下，支持静态类型检查和运行时解释／生成 C/C++ 代码。
-
----
-
-## 数据类型
-
-| 名称    | 描述                                |
-|-------|-----------------------------------|
-| `Int`   | 32 位有符号整数                         |
-| `Long`  | 64 位有符号整数                         |
-| `Float` | 32 位浮点数                            |
-| `Double`| 64 位浮点数                            |
-| `Bool`  | 布尔值 (`true`/`false`)              |
-| `Char`  | 单字符字面量                          |
-| `String`| 可变长 UTF-8 字符串                   |
-| `Array<T>` | 元素类型为 `T` 的动态数组            |
-| `Any`   | 任意类型（类型检查时跳过）              |
+每个脚本是一系列语句（statement）或函数声明。执行从顶部开始，依次运行。
 
 ---
 
-## 变量声明
+## 3. 数据类型
 
-- **不可变**：`let`
+- 原始类型：`Int`、`Float`、`Bool`、`Char`、`String`
+- 泛型类型：`Array<T>`
+- 特殊类型：`Any`（动态）
+
+---
+
+## 4. 变量声明
 
 ```paw
-let x: Int    = 42
-
-# 声明式输入
-let name: String <- ask "What's your name?"
-```
-
-- `let … = …` 普通赋值
-- `let … <- ask "…"` 声明式输入，返回值绑定到变量
-
----
-
-## 表达式
-
-```paw
-# 算术
-1 + 2 * (3 - 4) / 5 % 2
-
-# 比较
-a == b
-a != b
-a <  b
-a >= b
-
-# 逻辑
-flag && (count > 0) || !done
-
-# 函数调用
-sum(1, 2, 3)
-
-# 数组
-[1, 2, 3][0]      # 取第 0 个元素
-arr[ i % len(arr) ]
-
-# 字符串拼接（自动 to_string）
-"Hello, " + name + "!"
-
-# 一元
--x
-!flag
+let x: Int = 10
+x = x + 1             # 赋值（可变）
 ```
 
 ---
 
-## 语句
+## 5. 表达式
 
-### 输出与输入
-
-```paw
-say "Value is " + x      # 输出到终端
-ask "Press Enter to continue"  # 直接弹提示
-let answer: Int <- ask "Enter a number:"
-```
-
-### 赋值
-
-```paw
-let n: Int = 0
-n = addOne(n)
-```
-
-### 返回
-
-```paw
-return          # 仅在函数内部有效
-return expr     # 返回值
-```
+- 算术：`+` `-` `*` `/` `%`
+- 比较：`==` `!=` `<` `<=` `>` `>=`
+- 逻辑：`&&` `||` `!`
+- 字符串拼接：`"Hi " + name + "!"`
+- 括号改变优先级：`(a + b) * c`
 
 ---
 
-## 控制流
+## 6. 语句
 
-### 条件分支
+- 赋值：`let` / 修改后直接 `=`
+- 输出：`say <expr>`
+- 输入：`ask <string literal>` 或 `let x: String <- ask "?"`
+- 返回：`return <expr>` 或 `return`
+
+---
+
+## 7. 控制流
 
 ```paw
-if a == 0 {
-    say "zero"
-} else if a < 0 {
-    say "negative"
+if cond {
+  …
+} else if cond2 {
+  …
 } else {
-    say "positive"
-}
-```
-
-### 循环
-
-```paw
-# 无限循环
-loop forever {
-    say "looping…"
-    break
+  …
 }
 
-# 条件循环（相当于 while）
-loop x > 0 {
-    x = x - 1
-}
-
-# 范围循环
-loop i in 0..5 {
-    say i
-}
-
-# 跳出与继续
-if i == 3 { continue }
-if i == 4 { break }
+loop forever { … }
+loop cond { … }
+loop i in start..end { … }
 ```
 
 ---
 
-## 函数
+## 8. 函数
 
 ```paw
-# 带返回值
-fun add(x: Int, y: Int): Int {
-    return x + y
+fun name(param1: Int, param2: Float): String {
+  return "…"
 }
+let s: String = name(1, 2.5)
+```
 
-# 无返回值（Void 可省略）
-fun greet(name: String) {
-    say "Hello, " + name + "!"
+---
+
+## 9. 数组
+
+```paw
+let a: Array<Int> = [1,2,3]
+say a[0]        # 索引
+say a.length    # 属性
+```
+
+---
+
+## 10. 类型转换
+
+显式转换使用 `as`：
+
+```paw
+let i: Int = 3
+let f: Float = i as Float     # Int → Float
+say f + 1.5
+```
+
+- 数值间（Int/Float）互转
+- 同类型转换（如 String as String）等价于无操作
+- 不兼容转换（String→Int）为编译错误
+
+---
+
+## 11. 注释
+
+```paw
+# 单行注释
+let x: Int = 5   # 行尾注释
+```
+
+---
+
+## 12. 异常处理
+
+PawScript 的异常关键字：
+
+| 关键字    | 功能                       |
+|---------|--------------------------|
+| `bark`    | 抛出异常（throw）            |
+| `sniff`   | 尝试块（try）                 |
+| `snatch`  | 捕获块（catch），绑定异常变量     |
+| `lastly`  | 最终块（finally），无论是否异常都执行 |
+
+### 抛出
+
+```paw
+bark "error message"
+```
+
+立即跳转至最近的 `snatch` 块。
+
+### 捕获
+
+```paw
+sniff {
+  …        # 尝试区
+} snatch (e) {
+  …        # 捕获区，e 是异常消息
+} lastly {
+  …        # 最终区
 }
-
-# 调用
-let r: Int = add(5, 7)
-greet("Paw")
 ```
 
-- 参数与返回类型**必须**注解
-- 支持嵌套调用与递归
+- 未抛出则跳过 `snatch`，仍执行 `lastly`
+- 抛出后执行 `snatch`，再执行 `lastly`
 
 ---
 
-## 数组
+## 13. 完整示例
 
 ```paw
-# 定义数组
-let nums: Array<Int> = [10, 20, 30]
+# 计算倒数并处理除零
 
-# 访问
-say "first=" + nums[0]
-```
-
-> **注意**：数组类型标注为 `Array<元素类型>`，字面量用 `[...]`，索引从 `0` 开始。
-
----
-
-## 注释
-
-- **单行**：`#` 开头
-
-```paw
-# 这是单行注释
-let foo: Int = 100  # 行尾也可注释
-```
-
----
-
-## 完整示例
-
-```paw
-# 计算并展示斐波那契数列
-
-ask "Press Enter to start…"
-
-fun fib(n: Int): Int {
-    if n < 2 {
-        return n
-    } else {
-        return fib(n-1) + fib(n-2)
+fun reciprocal(x: Int): Float {
+    if x == 0 {
+        bark "division by zero"      # 抛出
     }
+    return 1.0 / (x as Float)        # 转型
 }
 
-let count: Int <- ask "How many terms? "
-say "Fibonacci:"
+sniff {
+    say "Calling reciprocal(2)…"
+    let a: Float = reciprocal(2)
+    say "Result: " + a
 
-loop i in 0..count {
-    say fib(i)
+    say "Calling reciprocal(0)…"
+    let b: Float = reciprocal(0)    # 抛出→跳到 snatch
+    say "Won’t run"
+} snatch (err) {
+    say "Caught error: " + err       # 捕获消息
+} lastly {
+    say "Cleanup done"
 }
+
+say "Done."
 ```
+
+**输出：**
+
+```
+Calling reciprocal(2)…
+Result: 0.5
+Calling reciprocal(0)…
+Caught error: division by zero
+Cleanup done
+Done.
+```  
 
 ---
 
-祝你用得开心！  
-如需扩展：
-- 格式化工具 `pawfmt`
-- VSCode 语法高亮/代码片段
-- 支持自举 (bootstrapping) & 插件拓展机制
+祝你编程愉快！  
+更多扩展与自举，请见项目源码。

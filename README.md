@@ -1,256 +1,220 @@
-# 🐾 PawScript Quickstart Guide
+# 🐾 PawScript Beginner’s Guide
 
-Welcome to **PawScript**—a cute yet practical, statically-typed scripting language with functional flavor. This README covers all syntax and features in v0.1.
+Welcome to **PawScript**—a cute yet practical, statically-typed, functional-style scripting language. This README covers all syntax through v0.1, plus new **Type Casting** and **Exception Handling** sections.
 
 ---
 
 ## Table of Contents
 
-1. [Getting Started](#getting-started)  
-2. [Program Structure](#program-structure)  
-3. [Data Types](#data-types)  
-4. [Variables & Input](#variables--input)  
-5. [Expressions](#expressions)  
-6. [Statements](#statements)  
-7. [Control Flow](#control-flow)  
-8. [Functions](#functions)  
-9. [Arrays](#arrays)  
-10. [Comments](#comments)  
-11. [Complete Example](#complete-example)
+1. [Installation & Running](#installation--running)
+2. [Basic Structure](#basic-structure)
+3. [Data Types](#data-types)
+4. [Variable Declaration](#variable-declaration)
+5. [Expressions](#expressions)
+6. [Statements](#statements)
+7. [Control Flow](#control-flow)
+8. [Functions](#functions)
+9. [Arrays](#arrays)
+10. [Type Casting](#type-casting)
+11. [Comments](#comments)
+12. [Exception Handling](#exception-handling)
+13. [Complete Example](#complete-example)
 
 ---
 
-## Getting Started
+## 1. Installation & Running
 
-1. **Clone and enter**:
+1. **Clone & build**:
    ```bash
    git clone https://github.com/KinLeoapple/pawc.git
    cd pawc
-   ```
-2. **Run in interpreter mode**:
-   ```bash
-   cargo run -- path/to/script.paw
-   ```
-3. **Build the compiler (`pawc`)**:
-   ```bash
    cargo build --release
-   ./target/release/pawc path/to/script.paw
+   ```
+2. **Interpret**:
+   ```bash
+   target/release/pawc run hello.paw
    ```
 
 ---
 
-## Program Structure
+## 2. Basic Structure
 
-A PawScript program is a sequence of top-level statements: declarations, function definitions, loops, etc. Execution is sequential: parse → static type check → interpret or emit C/C++.
-
----
-
-## Data Types
-
-| Type         | Description                       |
-| ------------ | --------------------------------- |
-| `Int`        | 32-bit signed integer             |
-| `Long`       | 64-bit signed integer             |
-| `Float`      | 32-bit floating-point              |
-| `Double`     | 64-bit floating-point              |
-| `Bool`       | Boolean (`true` / `false`)        |
-| `Char`       | Single character                  |
-| `String`     | UTF-8 string                      |
-| `Array<T>`   | Dynamic array of elements of `T`  |
-| `Any`        | Untyped or unknown                |
+A script is a series of statements or function declarations. Execution starts at the top and runs sequentially.
 
 ---
 
-## Variables & Input
+## 3. Data Types
 
-- **Immutable**: `let`
+- **Primitive**: `Int`, `Float`, `Bool`, `Char`, `String`
+- **Generic**: `Array<T>`
+- **Dynamic**: `Any`
+
+---
+
+## 4. Variable Declaration
 
 ```paw
-let x: Int    = 42
-
-# Prompt the user, bind result to `name`
-let name: String <- ask "What's your name?"
-```
-
-- `let … = …` for normal assignment
-- `let … <- ask "…"` to prompt and capture input
-
----
-
-## Expressions
-
-```paw
-# Arithmetic
-1 + 2 * (3 - 4) / 5 % 2
-
-# Comparison
-a == b
-a != b
-a <  b
-a >= b
-
-# Logical
-flag && (count > 0) || !done
-
-# Function call
-sum(1, 2, 3)
-
-# Array indexing
-[1, 2, 3][0]
-arr[i % len(arr)]
-
-# String concatenation (auto to_string)
-"Hello, " + name + "!"
-
-# Unary
--x
-!flag
+let x: Int = 10       # immutable binding
+x = x + 1             # assignment (variable)
 ```
 
 ---
 
-## Statements
+## 5. Expressions
 
-### Output & Prompt
-
-```paw
-say "The value is " + x
-ask "Press Enter to continue"
-let answer: Int <- ask "Enter a number:"
-```
-
-### Assignment
-
-```paw
-let n: Int = 0
-n = addOne(n)
-```
-
-### Return
-
-```paw
-return          # inside a function
-return expr     # return a value
-```
+- Arithmetic: `+` `-` `*` `/` `%`
+- Comparison: `==` `!=` `<` `<=` `>` `>=`
+- Logical: `&&` `||` `!`
+- String concat: `"Hi " + name + "!"`
+- Grouping: `(a + b) * c`
 
 ---
 
-## Control Flow
+## 6. Statements
 
-### Conditional
+- Declaration/assignment: `let` / then `=`
+- Print: `say <expr>`
+- Input: `ask <string>` or `let x: String <- ask "?"`
+- Return: `return <expr>` or `return`
+
+---
+
+## 7. Control Flow
 
 ```paw
-if a == 0 {
-    say "zero"
-} else if a < 0 {
-    say "negative"
+if cond {
+  …
+} else if cond2 {
+  …
 } else {
-    say "positive"
-}
-```
-
-### Loops
-
-```paw
-# Infinite loop
-loop forever {
-    say "looping…"
-    break
+  …
 }
 
-# While-style loop
-loop x > 0 {
-    x = x - 1
-}
-
-# Range loop
-loop i in 0..5 {
-    say i
-}
-
-# break and continue
-if i == 3 { continue }
-if i == 4 { break }
+loop forever { … }
+loop cond { … }
+loop i in start..end { … }
 ```
 
 ---
 
-## Functions
+## 8. Functions
 
 ```paw
-# With return
-fun add(x: Int, y: Int): Int {
-    return x + y
+fun name(param1: Int, param2: Float): String {
+  return "…"
 }
+let s: String = name(1, 2.5)
+```
 
-# Void function
-fun greet(name: String) {
-    say "Hello, " + name + "!"
+---
+
+## 9. Arrays
+
+```paw
+let a: Array<Int> = [1,2,3]
+say a[0]        # index
+say a.length    # property
+```
+
+---
+
+## 10. Type Casting
+
+Use `as` for explicit casts:
+
+```paw
+let i: Int = 3
+let f: Float = i as Float     # Int → Float
+say f + 1.5
+```
+
+- Numeric widening (Int⇄Float)
+- Same-type casts are no-ops
+- Incompatible casts (String→Int) are compile-time errors
+
+---
+
+## 11. Comments
+
+```paw
+# single-line comment
+let x: Int = 5   # end-of-line comment
+```
+
+---
+
+## 12. Exception Handling
+
+Keywords:
+
+| Keyword   | Role                             |
+|-----------|----------------------------------|
+| `bark`    | throw an exception               |
+| `sniff`   | begin try block                  |
+| `snatch`  | catch block (binds exception var)|
+| `lastly`  | finally block (always executes)  |
+
+### Throw
+
+```paw
+bark "error message"
+```
+
+Immediately jumps to nearest `snatch`.
+
+### Catch
+
+```paw
+sniff {
+  …        # try block
+} snatch (e) {
+  …        # catch block, e is the error message
+} lastly {
+  …        # finally block
 }
-
-# Call
-let r: Int = add(5, 7)
-greet("Paw")
 ```
 
-- Parameters and return type **must** be annotated.
-- Supports recursion and nested calls.
+- If no `bark`, `snatch` is skipped; `lastly` still runs
+- If `bark`, executes `snatch` then `lastly`
 
 ---
 
-## Arrays
+## 13. Complete Example
 
 ```paw
-# Declare an array
-let nums: Array<Int> = [10, 20, 30]
-
-# Access elements
-say "first=" + nums[0]
-```
-
-Type is `Array<ElementType>`. Literals use `[ ... ]`. Zero-based indexing.
-
----
-
-## Comments
-
-- Single-line comments start with `#`
-
-```paw
-# This is a comment
-let x: Int = 100  # Inline comment
-```
-
----
-
-## Complete Example
-
-```paw
-# Fibonacci generator
-
-ask "Press Enter to start…"
-
-fun fib(n: Int): Int {
-    if n < 2 {
-        return n
-    } else {
-        return fib(n-1) + fib(n-2)
+# reciprocal throws on zero, uses cast
+fun reciprocal(x: Int): Float {
+    if x == 0 {
+        bark "division by zero"      # throw
     }
+    return 1.0 / (x as Float)        # cast
 }
 
-let count: Int <- ask "How many terms? "
-say "Fibonacci sequence:"
+sniff {
+    say "Calling reciprocal(2)…"
+    let a: Float = reciprocal(2)
+    say "Result: " + a
 
-loop i in 0..count {
-    say fib(i)
+    say "Calling reciprocal(0)…"
+    let b: Float = reciprocal(0)    # throws → jumps to snatch
+    say "Won’t run"
+} snatch (err) {
+    say "Caught error: " + err       # catch
+} lastly {
+    say "Cleanup done"
 }
+
+say "Done."
 ```
 
-Save as `fib.paw` and run:
-
-```bash
-pawc fib.paw
+**Expected output:**
 ```
+Calling reciprocal(2)…
+Result: 0.5
+Calling reciprocal(0)…
+Caught error: division by zero
+Cleanup done
+Done.
+```  
 
-Enjoy PawScript!  
-Expand with `pawfmt`, editor plugins, or custom bootstrapping and extensions.
+Enjoy PawScript! For bootstrapping and extension, see the source.

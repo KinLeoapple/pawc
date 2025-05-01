@@ -4,14 +4,14 @@ mod interpreter;
 mod lexer;
 mod parser;
 mod semantic;
-mod token;
+
 
 use error::PawError;
 use interpreter::Interpreter;
-use lexer::Lexer;
 use parser::Parser;
 use std::env;
 use std::fs;
+use crate::lexer::lex::Lexer;
 use crate::semantic::type_checker::TypeChecker;
 
 fn main() {

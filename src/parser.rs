@@ -2,7 +2,7 @@
 
 use crate::ast::{BinaryOp, Expr, Param, Statement, StatementKind};
 use crate::error::PawError;
-use crate::token::Token;
+use crate::lexer::token::Token;
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -71,6 +71,14 @@ impl Parser {
                 "if" => self.parse_if_statement(),
                 "loop" => self.parse_loop_statement(),
                 "fun" => self.parse_fun_statement(),
+                "bark" => self.parse_throw(),
+                "sniff" => self.parse_try_catch_finally(),
+                "snatch" => {
+                    Err(PawError::Syntax { message: "`snatch` cannot appear alone".into() })
+                },
+                "lastly" => {
+                    Err(PawError::Syntax { message: "`lastly` cannot appear alone".into() })
+                },
                 _ => self.parse_expr_statement(),
             },
             Some(Token::LBrace) => {
@@ -279,6 +287,38 @@ impl Parser {
         }
     }
 
+    /// 解析 throw（bark）
+    fn parse_throw(&mut self) -> Result<Statement, PawError> {
+        self.expect_keyword("bark")?;
+        let expr = self.parse_expr()?;
+        Ok(Statement::new(StatementKind::Throw(expr)))
+    }
+
+    /// 解析 try…catch…finally （sniff/snatch/lastly）
+    fn parse_try_catch_finally(&mut self) -> Result<Statement, PawError> {
+        self.expect_keyword("sniff")?;
+        let body = self.parse_block()?;
+
+        // 捕获 snatch
+        self.expect_keyword("snatch")?;
+        self.expect_token(Token::LParen)?;
+        let err_name = self.expect_identifier()?;
+        self.expect_token(Token::RParen)?;
+        let handler = self.parse_block()?;
+
+        // 可选 lastly
+        let finally = if self.peek_keyword("lastly") {
+            self.next();
+            self.parse_block()?
+        } else {
+            Vec::new()
+        };
+
+        Ok(Statement::new(StatementKind::TryCatchFinally {
+            body, err_name, handler, finally
+        }))
+    }
+    
     pub fn parse_expr(&mut self) -> Result<Expr, PawError> {
         self.parse_binary_expr(0)
     }
@@ -287,38 +327,54 @@ impl Parser {
         let mut left = self.parse_unary_expr()?;
 
         while let Some(tok) = self.peek() {
-            // assign precedences as you see fit
-            let (prec, op) = match tok {
-                // arithmetic
-                Token::Plus => (6, BinaryOp::Add),
-                Token::Minus => (6, BinaryOp::Sub),
-                Token::Star => (7, BinaryOp::Mul),
-                Token::Slash => (7, BinaryOp::Div),
-                Token::Percent => (7, BinaryOp::Mod),
+            // 先专门处理 `as`，最低优先级 cast
+            if let Some(Token::Keyword(ref k)) = self.peek() {
+                if k == "as" && min_prec <= 0 {
+                    // consume "as"
+                    self.next();
+                    // 右侧必须是一个类型字面
+                    let ty = self.parse_type()?;
+                    // 直接构造 Cast 节点
+                    left = Expr::Cast { expr: Box::new(left), ty };
+                    // 继续尝试更低优先级的操作
+                    continue;
+                }
+            }
 
-                // comparisons
-                Token::EqEq => (5, BinaryOp::EqEq),
-                Token::NotEq => (5, BinaryOp::NotEq),
-                Token::Lt => (5, BinaryOp::Lt),
-                Token::Le => (5, BinaryOp::Le),
-                Token::Gt => (5, BinaryOp::Gt),
-                Token::Ge => (5, BinaryOp::Ge),
+            // 然后处理其它二元运算
+            let (prec, right_assoc, op_kind) = match tok {
+                Token::Plus    => (6, false, BinaryOp::Add),
+                Token::Minus   => (6, false, BinaryOp::Sub),
+                Token::Star    => (7, false, BinaryOp::Mul),
+                Token::Slash   => (7, false, BinaryOp::Div),
+                Token::Percent => (7, false, BinaryOp::Mod),
 
-                // boolean
-                Token::AndAnd => (4, BinaryOp::And),
-                Token::OrOr => (3, BinaryOp::Or),
+                Token::EqEq    => (5, false, BinaryOp::EqEq),
+                Token::NotEq   => (5, false, BinaryOp::NotEq),
+                Token::Lt      => (5, false, BinaryOp::Lt),
+                Token::Le      => (5, false, BinaryOp::Le),
+                Token::Gt      => (5, false, BinaryOp::Gt),
+                Token::Ge      => (5, false, BinaryOp::Ge),
+
+                Token::AndAnd  => (4, false, BinaryOp::And),
+                Token::OrOr    => (3, false, BinaryOp::Or),
 
                 _ => break,
             };
 
-            // standard precedence climbing
             if prec < min_prec {
                 break;
             }
-            self.next(); // consume the operator token
-            let right = self.parse_binary_expr(prec + 1)?;
+
+            // consume operator token
+            self.next();
+            // 递归抓取右侧子表达式
+            let next_min = if right_assoc { prec } else { prec + 1 };
+            let right = self.parse_binary_expr(next_min)?;
+
+            // 普通二元运算
             left = Expr::BinaryOp {
-                op,
+                op: op_kind,
                 left: Box::new(left),
                 right: Box::new(right),
             };

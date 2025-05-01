@@ -54,6 +54,14 @@ pub enum StatementKind {
     },
 
     Block(Vec<Statement>),
+
+    Throw(Expr),
+    TryCatchFinally {
+        body: Vec<Statement>,
+        err_name: String,
+        handler: Vec<Statement>,
+        finally: Vec<Statement>,
+    },
 }
 
 /// 语句

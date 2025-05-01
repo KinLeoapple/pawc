@@ -29,14 +29,14 @@ pub enum Value {
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Value::Int(a),    Value::Int(b))    => a == b,
-            (Value::Long(a),   Value::Long(b))   => a == b,
-            (Value::Float(a),  Value::Float(b))  => a == b,
-            (Value::Bool(a),   Value::Bool(b))   => a == b,
-            (Value::Char(a),   Value::Char(b))   => a == b,
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Long(a), Value::Long(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => a == b,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Char(a), Value::Char(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Array(a1), Value::Array(a2)) => a1 == a2,
-            (Value::Void,      Value::Void)      => true,
+            (Value::Void, Value::Void) => true,
             // Function、不同变体或类型不匹配都算不相等
             _ => false,
         }
@@ -47,10 +47,10 @@ impl PartialEq for Value {
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
-            (Value::Int(a),    Value::Int(b))    => a.partial_cmp(b),
-            (Value::Long(a),   Value::Long(b))   => a.partial_cmp(b),
-            (Value::Float(a),  Value::Float(b))  => a.partial_cmp(b),
-            (Value::Char(a),   Value::Char(b))   => a.partial_cmp(b),
+            (Value::Int(a), Value::Int(b)) => a.partial_cmp(b),
+            (Value::Long(a), Value::Long(b)) => a.partial_cmp(b),
+            (Value::Float(a), Value::Float(b)) => a.partial_cmp(b),
+            (Value::Char(a), Value::Char(b)) => a.partial_cmp(b),
             (Value::String(a), Value::String(b)) => a.partial_cmp(b),
             // 其余情况（Bool、Array、Function、Void）不支持大小比较
             _ => None,
@@ -62,19 +62,21 @@ impl Value {
     fn to_bool(&self) -> Result<bool, PawError> {
         match self {
             Value::Bool(b) => Ok(*b),
-            _ => Err(PawError::Type { message: format!("Cannot convert {:?} to bool", self) }),
+            _ => Err(PawError::Type {
+                message: format!("Cannot convert {:?} to bool", self),
+            }),
         }
     }
 
     fn to_string_value(&self) -> String {
         match self {
             Value::String(s) => s.clone(),
-            Value::Int(i)    => i.to_string(),
-            Value::Long(l)   => l.to_string(),
-            Value::Float(f)  => f.to_string(),
-            Value::Bool(b)   => b.to_string(),
-            Value::Char(c)   => c.to_string(),
-            Value::Array(a)  => format!("{:?}", a),
+            Value::Int(i) => i.to_string(),
+            Value::Long(l) => l.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Char(c) => c.to_string(),
+            Value::Array(a) => format!("{:?}", a),
             _ => "<fn>".into(),
         }
     }
@@ -97,7 +99,9 @@ pub struct Env {
 
 impl Env {
     pub fn new() -> Self {
-        Env { scopes: vec![HashMap::new()] }
+        Env {
+            scopes: vec![HashMap::new()],
+        }
     }
 
     pub fn push(&mut self) {
@@ -148,7 +152,13 @@ impl Interpreter {
     pub fn run(&mut self, stmts: &[Statement]) -> Result<(), PawError> {
         // 先把所有顶层函数声明绑到环境里
         for stmt in stmts {
-            if let StatementKind::FunDecl { name, params, return_type: _, body } = &stmt.kind {
+            if let StatementKind::FunDecl {
+                name,
+                params,
+                return_type: _,
+                body,
+            } = &stmt.kind
+            {
                 let f = Value::Function {
                     params: params.iter().map(|p| p.name.clone()).collect(),
                     body: body.clone(),
@@ -188,16 +198,24 @@ impl Interpreter {
             }
             StatementKind::Assign { name, value } => {
                 let v = self.eval_expr(value)?;
-                self.env.set(name, v)?;  // 更新已经存在的变量
+                self.env.set(name, v)?; // 更新已经存在的变量
                 Ok(ExecResult::Normal)
             }
-            StatementKind::Ask { name, ty: _, prompt } => {
+            StatementKind::Ask {
+                name,
+                ty: _,
+                prompt,
+            } => {
                 print!("{}", prompt);
-                io::stdout().flush()
-                    .map_err(|e| PawError::Internal { message: e.to_string() })?;
+                io::stdout().flush().map_err(|e| PawError::Internal {
+                    message: e.to_string(),
+                })?;
                 let mut line = String::new();
-                io::stdin().read_line(&mut line)
-                    .map_err(|e| PawError::Internal { message: e.to_string() })?;
+                io::stdin()
+                    .read_line(&mut line)
+                    .map_err(|e| PawError::Internal {
+                        message: e.to_string(),
+                    })?;
                 // 简化：只支持读字符串
                 self.env.define(name.clone(), Value::String(line.into()));
                 Ok(ExecResult::Normal)
@@ -205,11 +223,15 @@ impl Interpreter {
             StatementKind::AskPrompt(prompt) => {
                 // 仅提示，不保存
                 print!("{}", prompt);
-                io::stdout().flush()
-                    .map_err(|e| PawError::Internal { message: e.to_string() })?;
+                io::stdout().flush().map_err(|e| PawError::Internal {
+                    message: e.to_string(),
+                })?;
                 let mut line = String::new();
-                io::stdin().read_line(&mut line)
-                    .map_err(|e| PawError::Internal { message: e.to_string() })?;
+                io::stdin()
+                    .read_line(&mut line)
+                    .map_err(|e| PawError::Internal {
+                        message: e.to_string(),
+                    })?;
                 Ok(ExecResult::Normal)
             }
             StatementKind::Return(opt) => {
@@ -226,7 +248,11 @@ impl Interpreter {
                 let _ = self.eval_expr(expr)?;
                 Ok(ExecResult::Normal)
             }
-            StatementKind::If { condition, body, else_branch } => {
+            StatementKind::If {
+                condition,
+                body,
+                else_branch,
+            } => {
                 let c = self.eval_expr(condition)?;
                 if c.to_bool()? {
                     self.env.push();
@@ -247,10 +273,16 @@ impl Interpreter {
                 loop {
                     self.env.push();
                     match self.exec_block(body)? {
-                        ExecResult::Normal => {},
-                        ExecResult::Break => { self.env.pop(); break; }
-                        ExecResult::Continue => {},
-                        ret @ ExecResult::Return(_) => { self.env.pop(); return Ok(ret); }
+                        ExecResult::Normal => {}
+                        ExecResult::Break => {
+                            self.env.pop();
+                            break;
+                        }
+                        ExecResult::Continue => {}
+                        ret @ ExecResult::Return(_) => {
+                            self.env.pop();
+                            return Ok(ret);
+                        }
                     }
                     self.env.pop();
                 }
@@ -260,32 +292,57 @@ impl Interpreter {
                 while self.eval_expr(condition)?.to_bool()? {
                     self.env.push();
                     match self.exec_block(body)? {
-                        ExecResult::Normal => {},
-                        ExecResult::Break => { self.env.pop(); break; }
-                        ExecResult::Continue => {},
-                        ret @ ExecResult::Return(_) => { self.env.pop(); return Ok(ret); }
+                        ExecResult::Normal => {}
+                        ExecResult::Break => {
+                            self.env.pop();
+                            break;
+                        }
+                        ExecResult::Continue => {}
+                        ret @ ExecResult::Return(_) => {
+                            self.env.pop();
+                            return Ok(ret);
+                        }
                     }
                     self.env.pop();
                 }
                 Ok(ExecResult::Normal)
             }
-            StatementKind::LoopRange { var, start, end, body } => {
+            StatementKind::LoopRange {
+                var,
+                start,
+                end,
+                body,
+            } => {
                 let s = match self.eval_expr(start)? {
                     Value::Int(i) => i,
-                    _ => return Err(PawError::Type { message: "Range start not Int".into() })
+                    _ => {
+                        return Err(PawError::Type {
+                            message: "Range start not Int".into(),
+                        })
+                    }
                 };
                 let e = match self.eval_expr(end)? {
                     Value::Int(i) => i,
-                    _ => return Err(PawError::Type { message: "Range end not Int".into() })
+                    _ => {
+                        return Err(PawError::Type {
+                            message: "Range end not Int".into(),
+                        })
+                    }
                 };
                 for i in s..e {
                     self.env.push();
                     self.env.define(var.clone(), Value::Int(i));
                     match self.exec_block(body)? {
-                        ExecResult::Normal => {},
-                        ExecResult::Break => { self.env.pop(); break; }
-                        ExecResult::Continue => {},
-                        ret @ ExecResult::Return(_) => { self.env.pop(); return Ok(ret); }
+                        ExecResult::Normal => {}
+                        ExecResult::Break => {
+                            self.env.pop();
+                            break;
+                        }
+                        ExecResult::Continue => {}
+                        ret @ ExecResult::Return(_) => {
+                            self.env.pop();
+                            return Ok(ret);
+                        }
                     }
                     self.env.pop();
                 }
@@ -301,38 +358,112 @@ impl Interpreter {
                 self.env.pop();
                 Ok(res)
             }
+            StatementKind::Throw(expr) => {
+                // 先求值
+                let v = self.eval_expr(expr)?;
+                // 我们把所有异常都当字符串处理
+                Err(PawError::Codegen {
+                    message: format!("{:?}", v),
+                })
+            }
+            StatementKind::TryCatchFinally {
+                body,
+                err_name,
+                handler,
+                finally,
+            } => {
+                // 用闭包捕获 Err
+                let try_res = (|| -> Result<ExecResult, PawError> {
+                    for s in body {
+                        self.exec_stmt(s)?; // 如果中间有 Err，会立即return Err
+                    }
+                    Ok(ExecResult::Normal) // 正常完成
+                })();
+
+                match try_res {
+                    Ok(_) => {
+                        // nothing to do: try 块正常结束
+                    }
+                    Err(err) => {
+                        // 把 err 转为字符串绑定到 err_name
+                        let msg = err.to_string();
+                        self.env.define(err_name.clone(), Value::String(msg));
+                        // 执行 handler（snatch）块
+                        for s in handler {
+                            self.exec_stmt(s)?;
+                        }
+                    }
+                }
+
+                // 无论 try 是否抛错，都执行 lastly
+                for s in finally {
+                    self.exec_stmt(s)?;
+                }
+
+                Ok(ExecResult::Normal)
+            }
         }
     }
 
     /// 计算表达式的值
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value, PawError> {
         match expr {
-            Expr::LiteralInt(i)    => Ok(Value::Int(*i)),
-            Expr::LiteralLong(l)   => Ok(Value::Long(*l)),
-            Expr::LiteralFloat(f)  => Ok(Value::Float(*f)),
+            Expr::LiteralInt(i) => Ok(Value::Int(*i)),
+            Expr::LiteralLong(l) => Ok(Value::Long(*l)),
+            Expr::LiteralFloat(f) => Ok(Value::Float(*f)),
             Expr::LiteralString(s) => Ok(Value::String(s.clone())),
             Expr::LiteralBool(b) => Ok(Value::Bool(*b)),
-            Expr::LiteralChar(c)   => Ok(Value::Char(*c)),
-            Expr::Var(name) => {
-                self.env.get(name)
-                    .ok_or_else(|| PawError::UndefinedVariable { name: name.clone() })
+            Expr::LiteralChar(c) => Ok(Value::Char(*c)),
+            Expr::Cast { expr: inner, ty } => {
+                let v = self.eval_expr(inner)?;
+                match (v, ty.as_str()) {
+                    (Value::Int(i), "Float") => Ok(Value::Float(i as f64)),
+                    (Value::Int(i), "Long") => Ok(Value::Long(i as i64)),
+                    (Value::Long(l), "Float") => Ok(Value::Float(l as f64)),
+                    (Value::Long(l), "Int") => Ok(Value::Int(l as i32)),
+                    (Value::Float(f), "Int") => Ok(Value::Int(f as i32)),
+                    (Value::Float(f), "Long") => Ok(Value::Long(f as i64)),
+                    // string ↔ char conversions, etc. if you wish…
+                    (Value::String(s), "Int") => {
+                        let n = s.parse::<i32>().map_err(|_| PawError::Type {
+                            message: format!("Cannot cast string '{}' to Int", s),
+                        })?;
+                        Ok(Value::Int(n))
+                    }
+                    // casting to String: call to_string()
+                    (val, "String") => Ok(Value::String(val.to_string_value())),
+                    // casting to Bool?
+                    (val, "Bool") => Ok(Value::Bool(val.to_bool()?)),
+                    // if target equals value’s own type, just pass through
+                    (val, t) if format!("{:?}", val) == t => Ok(val),
+                    // otherwise error
+                    (val, t) => Err(PawError::Type {
+                        message: format!("Cannot cast {:?} to {}", val, t),
+                    }),
+                }
             }
+            Expr::Var(name) => self
+                .env
+                .get(name)
+                .ok_or_else(|| PawError::UndefinedVariable { name: name.clone() }),
             Expr::UnaryOp { op, expr: inner } => {
                 let v = self.eval_expr(inner)?;
                 match (op.as_str(), v.clone()) {
-                    ("-", Value::Int(i))   => Ok(Value::Int(-i)),
-                    ("-", Value::Long(l))  => Ok(Value::Long(-l)),
+                    ("-", Value::Int(i)) => Ok(Value::Int(-i)),
+                    ("-", Value::Long(l)) => Ok(Value::Long(-l)),
                     ("-", Value::Float(f)) => Ok(Value::Float(-f)),
-                    ("!", v)               => Ok(Value::Bool(!v.to_bool()?)),
-                    _ => Err(PawError::Type { message: format!("Bad unary `{}` on {:?}", op, v) })
+                    ("!", v) => Ok(Value::Bool(!v.to_bool()?)),
+                    _ => Err(PawError::Type {
+                        message: format!("Bad unary `{}` on {:?}", op, v),
+                    }),
                 }
             }
             Expr::BinaryOp { op, left, right } => {
                 let l = self.eval_expr(left)?;
                 let r = self.eval_expr(right)?;
                 let val = match op {
-                    BinaryOp::Add =>{
-                        // —— 支持字符串拼接 —— 
+                    BinaryOp::Add => {
+                        // —— 支持字符串拼接 ——
                         // 如果左侧是字符串，直接把右侧也 to_string 并拼接
                         if let Value::String(a) = l.clone() {
                             return Ok(Value::String(a + &r.to_string_value()));
@@ -343,58 +474,94 @@ impl Interpreter {
                         }
                         // 否则回退到数值加法
                         match (l, r) {
-                            (Value::Int(a),    Value::Int(b))    => Ok(Value::Int(a + b)),
-                            (Value::Long(a),   Value::Long(b))   => Ok(Value::Long(a + b)),
-                            (Value::Float(a),  Value::Float(b))  => Ok(Value::Float(a + b)),
-                            _ => Err(PawError::Type { message: "Bad + operands".into() }),
+                            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
+                            (Value::Long(a), Value::Long(b)) => Ok(Value::Long(a + b)),
+                            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
+                            _ => Err(PawError::Type {
+                                message: "Bad + operands".into(),
+                            }),
                         }
-                    },
+                    }
                     BinaryOp::Sub => Ok(match (l, r) {
                         (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
                         (Value::Long(a), Value::Long(b)) => Value::Long(a - b),
                         (Value::Float(a), Value::Float(b)) => Value::Float(a - b),
-                        _ => return Err(PawError::Type { message: "Bad - operands".into() })
+                        _ => {
+                            return Err(PawError::Type {
+                                message: "Bad - operands".into(),
+                            })
+                        }
                     }),
                     BinaryOp::Mul => Ok(match (l, r) {
                         (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
                         (Value::Long(a), Value::Long(b)) => Value::Long(a * b),
                         (Value::Float(a), Value::Float(b)) => Value::Float(a * b),
-                        _ => return Err(PawError::Type { message: "Bad * operands".into() })
+                        _ => {
+                            return Err(PawError::Type {
+                                message: "Bad * operands".into(),
+                            })
+                        }
                     }),
                     BinaryOp::Div => Ok(match (l, r) {
                         (Value::Int(a), Value::Int(b)) => Value::Int(a / b),
                         (Value::Long(a), Value::Long(b)) => Value::Long(a / b),
                         (Value::Float(a), Value::Float(b)) => Value::Float(a / b),
-                        _ => return Err(PawError::Type { message: "Bad / operands".into() })
+                        _ => {
+                            return Err(PawError::Type {
+                                message: "Bad / operands".into(),
+                            })
+                        }
                     }),
                     BinaryOp::Mod => Ok(match (l, r) {
                         (Value::Int(a), Value::Int(b)) => Value::Int(a % b),
                         (Value::Long(a), Value::Long(b)) => Value::Long(a % b),
                         (Value::Float(a), Value::Float(b)) => Value::Float(a % b),
-                        _ => return Err(PawError::Type { message: "Bad % operands".into() })
+                        _ => {
+                            return Err(PawError::Type {
+                                message: "Bad % operands".into(),
+                            })
+                        }
                     }),
 
-                    BinaryOp::EqEq   => Ok(Value::Bool(l == r)),
-                    BinaryOp::NotEq  => Ok(Value::Bool(l != r)),
-                    BinaryOp::Lt     => Ok(Value::Bool(l < r)),
-                    BinaryOp::Le     => Ok(Value::Bool(l <= r)),
-                    BinaryOp::Gt     => Ok(Value::Bool(l > r)),
-                    BinaryOp::Ge     => Ok(Value::Bool(l >= r)),
-                    BinaryOp::And    => Ok(Value::Bool(l.to_bool()? && r.to_bool()?)),
-                    BinaryOp::Or     => Ok(Value::Bool(l.to_bool()? || r.to_bool()?)),
+                    BinaryOp::EqEq => Ok(Value::Bool(l == r)),
+                    BinaryOp::NotEq => Ok(Value::Bool(l != r)),
+                    BinaryOp::Lt => Ok(Value::Bool(l < r)),
+                    BinaryOp::Le => Ok(Value::Bool(l <= r)),
+                    BinaryOp::Gt => Ok(Value::Bool(l > r)),
+                    BinaryOp::Ge => Ok(Value::Bool(l >= r)),
+                    BinaryOp::And => Ok(Value::Bool(l.to_bool()? && r.to_bool()?)),
+                    BinaryOp::Or => Ok(Value::Bool(l.to_bool()? || r.to_bool()?)),
+                    BinaryOp::As => {
+                        // this really ought never happen here,
+                        // because you lowered `As` into Expr::Cast already.
+                        return Err(PawError::Internal {
+                            message: format!("Unhandled binary operator in interpreter: {:?}", op),
+                        });
+                    }
                 };
                 Ok(val?)
             }
             Expr::Call { name, args } => {
                 // 取出函数值
-                let f = self.env.get(name)
+                let f = self
+                    .env
+                    .get(name)
                     .ok_or_else(|| PawError::UndefinedVariable { name: name.clone() })?;
-                if let Value::Function { params, body, env: fn_env } = f {
+                if let Value::Function {
+                    params,
+                    body,
+                    env: fn_env,
+                } = f
+                {
                     if args.len() != params.len() {
-                        return Err(PawError::Type { message: "Arg count mismatch".into() });
+                        return Err(PawError::Type {
+                            message: "Arg count mismatch".into(),
+                        });
                     }
                     // new interpreter 用函数定义时的 env 作为闭包环境
-                    let mut sub = Interpreter { env: fn_env.clone() };
+                    let mut sub = Interpreter {
+                        env: fn_env.clone(),
+                    };
                     sub.env.push();
                     for (p, arg) in params.iter().zip(args.iter()) {
                         let v = self.eval_expr(arg)?;
@@ -405,7 +572,9 @@ impl Interpreter {
                         _ => Ok(Value::Void),
                     }
                 } else {
-                    Err(PawError::Type { message: format!("{} is not a function", name) })
+                    Err(PawError::Type {
+                        message: format!("{} is not a function", name),
+                    })
                 }
             }
             Expr::ArrayLiteral(elems) => {
@@ -420,14 +589,20 @@ impl Interpreter {
                 let idx = self.eval_expr(index)?;
                 let i = match idx {
                     Value::Int(i) => i as usize,
-                    _ => return Err(PawError::Type { message: "Index not Int".into() })
+                    _ => {
+                        return Err(PawError::Type {
+                            message: "Index not Int".into(),
+                        })
+                    }
                 };
                 if let Value::Array(mut v) = arr {
-                    v.get(i)
-                        .cloned()
-                        .ok_or_else(|| PawError::Internal { message: "Index out of bounds".into() })
+                    v.get(i).cloned().ok_or_else(|| PawError::Internal {
+                        message: "Index out of bounds".into(),
+                    })
                 } else {
-                    Err(PawError::Type { message: "Not an array".into() })
+                    Err(PawError::Type {
+                        message: "Not an array".into(),
+                    })
                 }
             }
             Expr::Property { object, name } => {
@@ -436,12 +611,16 @@ impl Interpreter {
                     if let Value::Array(v) = o {
                         Ok(Value::Int(v.len() as i32))
                     } else {
-                        Err(PawError::Type { message: "Not an array".into() })
+                        Err(PawError::Type {
+                            message: "Not an array".into(),
+                        })
                     }
                 } else {
-                    Err(PawError::Type { message: format!("Unknown property {}", name) })
+                    Err(PawError::Type {
+                        message: format!("Unknown property {}", name),
+                    })
                 }
-            },
+            }
         }
     }
 }

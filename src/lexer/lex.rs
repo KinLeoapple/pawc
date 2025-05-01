@@ -1,6 +1,6 @@
 // src/lexer.rs
 
-use crate::token::Token;
+use crate::lexer::token::Token;
 
 pub struct Lexer {
     src: Vec<char>,
@@ -181,10 +181,10 @@ impl Lexer {
                     "false" => Token::BoolLiteral(false),
                     
                     // 关键字
-                    "fun" | "let" | "say" | "ask"
+                    "fun" | "let" | "say" | "ask" | "as"
                     | "if"  | "else"| "loop"| "forever"
-                    | "return" | "break" | "continue"
-                    | "in" => Token::Keyword(ident),
+                    | "return" | "break" | "continue" | "in" | 
+                    "bark" | "sniff" | "snatch" | "lastly" => Token::Keyword(ident),
                     // 类型
                     "Int"    | "Long"   | "Float"  | "Double"
                     | "String" | "Char"   | "Bool"   | "Any"
