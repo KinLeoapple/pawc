@@ -24,8 +24,8 @@
 
 1. 克隆仓库并进入目录：  
    ```bash
-   git clone https://github.com/your‐org/pawscript.git
-   cd pawscript
+   git clone https://github.com/KinLeoapple/pawc.git
+   cd pawc
    ```
 2. 编译并运行（解释器模式）：
    ```bash

@@ -24,8 +24,8 @@ Welcome to **PawScript**—a cute yet practical, statically-typed scripting lang
 
 1. **Clone and enter**:
    ```bash
-   git clone https://github.com/your-org/pawscript.git
-   cd pawscript
+   git clone https://github.com/KinLeoapple/pawc.git
+   cd pawc
    ```
 2. **Run in interpreter mode**:
    ```bash
