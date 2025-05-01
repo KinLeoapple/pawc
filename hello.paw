@@ -1,0 +1,72 @@
+# === PawScript 语法测试脚本 ===
+
+# 1. 基本声明和初始化
+let a: Int = 10
+let b: Float = 3.14
+let name: String = "Paw"
+let flag: Bool = true
+
+# 2. 单纯的提示（AskPrompt）
+ask "Ready to continue? (Press Enter)"
+
+# 3. 带返回值的输入 (Ask)
+let answer: Int <- ask "Enter a number:"
+
+# 4. 赋值语句
+a = answer + 5
+
+# 5. say + 拼接（字符串和数值都支持）
+say "After input, a = " + a
+
+# 6. 条件分支：if / else if / else
+if a == 0 {
+    say "a is zero"
+} else if a < 0 {
+    say "a is negative"
+} else {
+    say "a is positive"
+}
+
+# 7. 循环示例：loop while
+loop a > 0 {
+    say a
+    a = a - 1
+    if a == 2 {
+        break
+    }
+}
+
+# 8. 循环示例：loop in range
+loop i in 1..5 {
+    if i % 2 == 0 {
+        say "even: " + i
+    } else {
+        say "odd: " + i
+    }
+    continue
+}
+
+# 9. 无限循环示例：loop forever
+loop forever {
+    say "This runs only once"
+    break
+}
+
+# 10. 函数定义与调用
+fun addOne(x: Int): Int {
+    return x + 1
+}
+
+let num: Int = 0
+num = addOne(num)
+say "addOne(0) = " + num
+
+# 11. 布尔逻辑运算
+let cond: Bool = flag && (num == 1) || !flag
+say "cond = " + cond
+
+# 12. 一元运算
+let neg: Int = -num
+say "neg = " + neg
+
+# 结束
