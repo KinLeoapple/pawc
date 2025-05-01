@@ -2,7 +2,7 @@
 name        = "pawc"
 version     = "0.1.0"
 authors     = ["Kinleoapple"]
-description = "🐾 PawScript compiler: .paw interpret"
+description = "🐾 PawScript interpret"
 license     = "MIT OR Apache-2.0"
 repository  = "https://github.com/KinLeoapple/pawc"
 homepage    = "https://github.com/KinLeoapple/pawc"
