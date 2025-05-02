@@ -1,89 +1,112 @@
-# 🐾 PawScript Beginner Guide
+# 🐾 PawScript Quickstart Guide
 
-Welcome to **PawScript**—a “cute yet practical” statically-typed, functional-style scripting language. This README covers all syntax through v0.1, including the three new features: **type casts**, **exception handling**, and **module import**.
+Welcome to **PawScript** — a **cute yet practical** statically typed, functional scripting language. This README covers all of v0.1’s syntax and introduces three major features: **type casting**, **exception handling**, and **module import**. It also documents **optional types** and **null values**.
 
 ---
 
 ## Table of Contents
 
-1. [Installation & Run](#installation--run)  
-2. [Basic Structure](#basic-structure)  
-3. [Data Types](#data-types)  
-4. [Variable Declaration](#variable-declaration)  
-5. [Expressions](#expressions)  
-6. [Statements](#statements)  
-7. [Control Flow](#control-flow)  
-8. [Functions](#functions)  
-9. [Arrays](#arrays)  
-10. [Type Casting](#type-casting)  
-11. [Comments](#comments)  
-12. [Exception Handling](#exception-handling)  
-13. [Module Import](#module-import)  
-14. [Complete Example](#complete-example)  
+1. [Installation & Execution](#installation--execution)
+2. [Program Structure](#program-structure)
+3. [Data Types](#data-types)
+4. [Optional Types & Null Values](#optional-types--null-values)
+5. [Variable Declaration](#variable-declaration)
+6. [Expressions](#expressions)
+7. [Statements](#statements)
+8. [Control Flow](#control-flow)
+9. [Functions](#functions)
+10. [Arrays](#arrays)
+11. [Type Casting](#type-casting)
+12. [Comments](#comments)
+13. [Exception Handling](#exception-handling)
+14. [Module Import](#module-import)
+15. [Full Example](#full-example)
 
 ---
 
-## 1. Installation & Run
+## Installation & Execution
 
-1. Clone & build:
+1. Clone and build:
+
    ```bash
    git clone https://github.com/KinLeoapple/pawc.git
    cd pawc
    cargo build --release
    ```
-2. Run a script:
+2. Run a `.paw` script:
+
    ```bash
    target/release/pawc hello.paw
    ```
 
 ---
 
-## 2. Basic Structure
+## Program Structure
 
-A PawScript program is a sequence of statements and function declarations. Execution starts at the top and runs each statement in order.
-
----
-
-## 3. Data Types
-
-- **Primitive**:
-   - Integer types: `Int`, `Long`
-   - Floating-point types: `Float`, `Double`
-   - Others: `Bool`, `Char`, `String`
-- **Generic**: `Array<T>`
-- **Special**: `Any` (dynamic)
+A PawScript program consists of statements and function declarations, executed in order.
 
 ---
 
-## 4. Variable Declaration
+## Data Types
+
+* **Primitive Types**: `Int`, `Long`, `Float`, `Double`, `Bool`, `Char`, `String`
+* **Generic**: `Array<T>`
+* **Special**:
+
+    * `Any` — dynamic type
+    * `Optional<T>` (or `T?`) — nullable type
+
+---
+
+## Optional Types & Null Values
+
+PawScript supports nullable (optional) types to represent the absence of a value.
+
+* Declare an optional type by appending `?`, e.g. `Int?` equals `Optional<Int>`.
+* The null literal is `nopaw`, corresponding to runtime `null`.
+* You can assign `nopaw` to optional variables only:
+
+  ```paw
+  let maybeNum: Int? = nopaw
+  if maybeNum == nopaw {
+    say "No number provided"
+  }
+  ```
+* You must check for `nopaw` before unwrapping. Assigning `nopaw` to non-optional types is a compile-time error.
+
+---
+
+## Variable Declaration
 
 ```paw
 let x: Int = 10
-x = x + 1           # reassignment
+let y: Int? = nopaw    # optional type
+x = x + 1             # reassignment
 ```
 
 ---
 
-## 5. Expressions
+## Expressions
 
-- Arithmetic: `+`, `-`, `*`, `/`, `%`
-- Comparison: `==`, `!=`, `<`, `<=`, `>`, `>=`
-- Logical: `&&`, `||`, `!`
-- String concat: `"Hi " + name + "!"`
-- Grouping: `(a + b) * c`
-
----
-
-## 6. Statements
-
-- Declaration / assignment: `let` / `=`
-- Output: `say <expr>`
-- Input: `ask <"prompt">` or `let x: String <- ask "?"`
-- Return: `return <expr>` or `return`
+* Arithmetic: `+ - * / %`
+* Comparison: `== != < <= > >=`
+* Logical: `&& || !`
+* String concatenation: `"Hi " + name + "!"`
+* Grouping: `(a + b) * c`
+* Optional comparisons: compare with `nopaw`
 
 ---
 
-## 7. Control Flow
+## Statements
+
+* Declaration / assignment: `let` / `=`
+* Output: `say <expr>`
+* Input: `ask <"prompt">` or `let x: String <- ask "?"`
+* Return: `return <expr>` or `return`
+
+---
+
+## Control Flow
 
 ```paw
 if cond {
@@ -101,7 +124,7 @@ loop i in start..end { … }
 
 ---
 
-## 8. Functions
+## Functions
 
 ```paw
 fun name(a: Int, b: Float): String {
@@ -112,19 +135,19 @@ let s: String = name(1, 2.5)
 
 ---
 
-## 9. Arrays
+## Arrays
 
 ```paw
 let a: Array<Int> = [1,2,3]
-say a[0]        # index
+say a[0]        # index access
 say a.length    # property
 ```
 
 ---
 
-## 10. Type Casting
+## Type Casting
 
-Use `as` for explicit casts:
+Use `as` for casts:
 
 ```paw
 let i: Int = 3
@@ -132,13 +155,13 @@ let f: Float = i as Float   # Int → Float
 say f + 1.5
 ```
 
-- Numeric ↔ numeric (Int, Long, Float, Double)
-- Casting to same type is no-op
-- Invalid casts (e.g. String→Int) are compile errors
+* Supported between Int/Long/Float/Double
+* No-op when source and target match
+* Invalid casts are compile-time errors
 
 ---
 
-## 11. Comments
+## Comments
 
 ```paw
 # single-line comment
@@ -147,28 +170,26 @@ let x: Int = 5   # trailing comment
 
 ---
 
-## 12. Exception Handling
+## Exception Handling
 
-| Keyword   | Role                           |
-|----------|--------------------------------|
-| `bark`    | throw                          |
-| `sniff`   | try                            |
-| `snatch`  | catch (binds exception name)   |
-| `lastly`  | finally                        |
+| Keyword  | Purpose       |
+| -------- | ------------- |
+| `bark`   | throw         |
+| `sniff`  | try block     |
+| `snatch` | catch block   |
+| `lastly` | finally block |
 
-### Throw
+### Throwing
 
 ```paw
 bark "error message"
 ```
 
-Immediately jumps to nearest `snatch` block.
-
 ### Try-Catch-Finally
 
 ```paw
 sniff {
-  …            # try block
+  …
 } snatch (e) {
   say "Caught: " + e
 } lastly {
@@ -178,57 +199,47 @@ sniff {
 
 ---
 
-## 13. Module Import
+## Module Import
 
-PawScript can import other `.paw` scripts as modules, with optional aliases.
-
-### Syntax
+Import `.paw` files by path, with optional alias.
 
 ```paw
-import foo.bar.baz           # imports foo/bar/baz.paw, alias “baz”
-import utils.math as m       # imports utils/math.paw, alias “m”
+import utils.math       # alias defaults to "math"
+import utils.math as m  # alias "m"
 ```
 
-- **module**: dot-separated identifiers → path `module.join("/") + ".paw"`
-- Optional `as alias`: access prefix; defaults to last path segment
-
-### Accessing Members
-
-- Use property or call syntax on the alias:
-  ```paw
-  say "square(5) = " + m.square(5)
-  say "PI = " + utils.math.PI    # if no alias used
-  ```
-- All top-level functions and variables of the imported script become members of that module namespace.
+* Access members: `m.square(5)` or `utils.math.PI`
 
 ---
 
-## 14. Complete Example
+## Full Example
 
 ```paw
-# import modules
 import utils.math as m
 import string
 
-# Module tests
 say "=== Module tests ==="
 say "square(5) = " + m.square(5)
 say "cube(3)   = " + m.cube(3)
 
-# Array & indexing tests
 say "\n=== Array & indexing tests ==="
 let a: Array<Int> = [10,20,30,40]
 say "a[0] = " + a[0]
-say "a[2] = " + a[2]
 say "a.length = " + a.length
 
-# String module tests
+say "\n=== Nullable & nopaw tests ==="
+let maybe: Int? = nopaw
+if maybe == nopaw {
+  say "maybe is null"
+} else {
+  say "maybe value = " + maybe
+}
+
 say "\n=== String module tests ==="
 let name: String = "PawScript"
 say "length(name) = " + string.length(name)
 say string.shout(name)
 
-# Exception & type casting tests
 fun reciprocal(x: Int): Float {
   if x == 0 {
     bark "division by zero"
@@ -245,12 +256,9 @@ sniff {
   say "Done exception test"
 }
 
-# Type casting
 let i: Int = 7
 say "i as Float = " + (i as Float)
 say "i as Double = " + (i as Double)
 ```
 
----
-
-Happy scripting!
+Happy coding with PawScript!

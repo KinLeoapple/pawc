@@ -1,64 +1,136 @@
+// File: src/error/error.rs
+
 use std::fmt;
 
-/// 🐾 PawScript Error Type — cute but informative
+/// 🐾 PawScript Error Type — informative and spanned
 #[derive(Debug, Clone)]
 pub enum PawError {
-    /// Syntax-level error, with line number
+    /// Syntax error with span and optional hint
     Syntax {
+        code: &'static str,
         message: String,
+        line: usize,
+        column: usize,
+        snippet: Option<String>,
+        hint: Option<String>,
     },
 
-    /// Type mismatch or violation
+    /// Type error with span and optional hint
     Type {
+        code: &'static str,
         message: String,
+        line: usize,
+        column: usize,
+        snippet: Option<String>,
+        hint: Option<String>,
     },
 
-    /// Variable is not defined
+    /// Undefined variable error
     UndefinedVariable {
+        code: &'static str,
         name: String,
+        line: usize,
+        column: usize,
+        snippet: Option<String>,
+        hint: Option<String>,
     },
 
-    /// Variable is defined twice in the same scope
+    /// Duplicate definition error
     DuplicateDefinition {
+        code: &'static str,
         name: String,
+        line: usize,
+        column: usize,
+        snippet: Option<String>,
+        hint: Option<String>,
     },
 
+    /// Code generation/runtime error
     Codegen {
+        code: &'static str,
         message: String,
+        line: usize,
+        column: usize,
+        snippet: Option<String>,
+        hint: Option<String>,
     },
 
-    /// Unexpected error (usually internal)
+    /// Internal error
     Internal {
+        code: &'static str,
         message: String,
+        line: usize,
+        column: usize,
+        snippet: Option<String>,
+        hint: Option<String>,
     },
 }
 
 impl fmt::Display for PawError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PawError::Syntax { message } => {
-                writeln!(f, "❌  {}", message)?;
-                writeln!(f, "👉 Double-check your code syntax!")
+            PawError::Syntax { code, message, line, column, snippet, hint } => {
+                writeln!(f, "[{}] Syntax Error at {}:{}: {}", code, line, column, message)?;
+                if let Some(ref src) = snippet {
+                    writeln!(f, "    {}", src)?;
+                }
+                if let Some(ref h) = hint {
+                    writeln!(f, "Hint: {}", h)?;
+                }
+                Ok(())
             }
-            PawError::Type { message } => {
-                writeln!(f, "❌  {}", message)?;
-                writeln!(f, "👉 Make sure your types match properly!")
+
+            PawError::Type { code, message, line, column, snippet, hint } => {
+                writeln!(f, "[{}] Type Error at {}:{}: {}", code, line, column, message)?;
+                if let Some(ref src) = snippet {
+                    writeln!(f, "    {}", src)?;
+                }
+                if let Some(ref h) = hint {
+                    writeln!(f, "Hint: {}", h)?;
+                }
+                Ok(())
             }
-            PawError::UndefinedVariable { name } => {
-                writeln!(f, "❌  Undefined variable: '{}'", name)?;
-                writeln!(f, "👉 Did you spell it correctly?")
+
+            PawError::UndefinedVariable { code, name, line, column, snippet, hint } => {
+                writeln!(f, "[{}] Undefined Variable '{}' at {}:{}", code, name, line, column)?;
+                if let Some(ref src) = snippet {
+                    writeln!(f, "    {}", src)?;
+                }
+                if let Some(ref h) = hint {
+                    writeln!(f, "Hint: {}", h)?;
+                }
+                Ok(())
             }
-            PawError::DuplicateDefinition { name, } => {
-                writeln!(f, "❌  The variable '{}' is already defined.", name)?;
-                writeln!(f, "👉 Try using a different name!")
+
+            PawError::DuplicateDefinition { code, name, line, column, snippet, hint } => {
+                writeln!(f, "[{}] Duplicate definition '{}' at {}:{}", code, name, line, column)?;
+                if let Some(ref src) = snippet {
+                    writeln!(f, "    {}", src)?;
+                }
+                if let Some(ref h) = hint {
+                    writeln!(f, "Hint: {}", h)?;
+                }
+                Ok(())
             }
-            PawError::Codegen { message, .. } => {
-                writeln!(f, "💥 Codegen error: {}", message)
+
+            PawError::Codegen { code, message, line, column, snippet, hint } => {
+                writeln!(f, "[{}] Codegen Error at {}:{}: {}", code, line, column, message)?;
+                if let Some(ref src) = snippet {
+                    writeln!(f, "    {}", src)?;
+                }
+                if let Some(ref h) = hint {
+                    writeln!(f, "Hint: {}", h)?;
+                }
+                Ok(())
             }
-            PawError::Internal { message } => {
-                writeln!(f, "💥 Internal error!")?;
-                writeln!(f, "❌  {}", message)?;
-                writeln!(f, "👉 Please report this to the PawScript maintainers.")
+
+            PawError::Internal { code, message, line, column, snippet: _snippet, hint } => {
+                writeln!(f, "[{}] Internal Error at {}:{}", code, line, column)?;
+                writeln!(f, "    {}", message)?;
+                if let Some(ref h) = hint {
+                    writeln!(f, "Hint: {}", h)?;
+                }
+                Ok(())
             }
         }
     }

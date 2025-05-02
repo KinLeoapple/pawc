@@ -1,10 +1,13 @@
-// src/lexer.rs
+// File: src/lexer.rs
 
-use crate::lexer::token::Token;
+use crate::lexer::token::{Token, TokenKind};
 
+/// A simple character-level lexer that produces spanned Tokens
 pub struct Lexer {
     src: Vec<char>,
     pos: usize,
+    line: usize,
+    column: usize,
 }
 
 impl Lexer {
@@ -12,36 +15,47 @@ impl Lexer {
         Self {
             src: input.chars().collect(),
             pos: 0,
+            line: 1,
+            column: 1,
         }
     }
 
-    /// 将整个输入拆成 Token 序列（不包含最终的 Eof）
+    /// Turn the entire input into a Vec<Token> (including final Eof)
     pub fn tokenize(mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
         loop {
             let tok = self.next_token();
-            if tok == Token::Eof {
+            let is_eof = matches!(tok.kind, TokenKind::Eof);
+            tokens.push(tok);
+            if is_eof {
                 break;
             }
-            tokens.push(tok);
         }
         tokens
     }
 
+    /// Consume the next character, updating line/column
     fn next_char(&mut self) -> Option<char> {
-        if self.pos < self.src.len() {
-            let c = self.src[self.pos];
+        if let Some(&c) = self.src.get(self.pos) {
             self.pos += 1;
+            if c == '\n' {
+                self.line += 1;
+                self.column = 1;
+            } else {
+                self.column += 1;
+            }
             Some(c)
         } else {
             None
         }
     }
 
+    /// Peek at the next character without consuming
     fn peek_char(&self) -> Option<char> {
         self.src.get(self.pos).copied()
     }
 
+    /// Skip whitespace (spaces, tabs, newlines)
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.peek_char() {
             if c.is_whitespace() {
@@ -52,109 +66,116 @@ impl Lexer {
         }
     }
 
+    /// Produce the next Token, with span information
     pub fn next_token(&mut self) -> Token {
         self.skip_whitespace();
+        let start_line = self.line;
+        let start_column = self.column;
+
         let c = match self.next_char() {
-            Some(c) => c,
-            None => return Token::Eof,
+            Some(ch) => ch,
+            None => return Token::new(TokenKind::Eof, start_line, start_column),
         };
 
-        // 先处理 Range 操作符 `..`
+        // Range operator `..`
         if c == '.' && self.peek_char() == Some('.') {
-            self.next_char(); // consume second '.'
-            return Token::Range;
+            self.next_char();
+            return Token::new(TokenKind::Range, start_line, start_column);
         }
 
-        if c == '[' {
-            return Token::LBracket;
-        }
-        if c == ']' {
-            return Token::RBracket;
-        }
-
+        // Single-character tokens
         match c {
-            '+' => Token::Plus,
-            '-' => Token::Minus,
-            '*' => Token::Star,
-            '/' => Token::Slash,
-            '%' => Token::Percent,
-            '(' => Token::LParen,
-            ')' => Token::RParen,
-            '{' => Token::LBrace,
-            '}' => Token::RBrace,
-            ',' => Token::Comma,
-            ':' => Token::Colon,
-            '.' => Token::Dot,
+            '[' => Token::new(TokenKind::LBracket, start_line, start_column),
+            ']' => Token::new(TokenKind::RBracket, start_line, start_column),
+            '+' => Token::new(TokenKind::Plus, start_line, start_column),
+            '-' => Token::new(TokenKind::Minus, start_line, start_column),
+            '*' => Token::new(TokenKind::Star, start_line, start_column),
+            '/' => Token::new(TokenKind::Slash, start_line, start_column),
+            '%' => Token::new(TokenKind::Percent, start_line, start_column),
+            '(' => Token::new(TokenKind::LParen, start_line, start_column),
+            ')' => Token::new(TokenKind::RParen, start_line, start_column),
+            '{' => Token::new(TokenKind::LBrace, start_line, start_column),
+            '}' => Token::new(TokenKind::RBrace, start_line, start_column),
+            ',' => Token::new(TokenKind::Comma, start_line, start_column),
+            ':' => Token::new(TokenKind::Colon, start_line, start_column),
+            '.' => Token::new(TokenKind::Dot, start_line, start_column),
+            '?' => Token::new(TokenKind::Question, start_line, start_column),
             '=' => {
                 if self.peek_char() == Some('=') {
                     self.next_char();
-                    Token::EqEq
+                    Token::new(TokenKind::EqEq, start_line, start_column)
                 } else {
-                    Token::Assign
+                    Token::new(TokenKind::Assign, start_line, start_column)
                 }
             }
             '<' => {
                 if self.peek_char() == Some('-') {
                     self.next_char();
-                    Token::LeftArrow
+                    Token::new(TokenKind::LeftArrow, start_line, start_column)
                 } else if self.peek_char() == Some('=') {
                     self.next_char();
-                    Token::Le
+                    return Token::new(TokenKind::Le, start_line, start_column);
                 } else {
-                    Token::Lt
+                    return Token::new(TokenKind::Lt, start_line, start_column);
                 }
             }
             '>' => {
                 if self.peek_char() == Some('=') {
                     self.next_char();
-                    Token::Ge
+                    Token::new(TokenKind::Ge, start_line, start_column)
                 } else {
-                    Token::Gt
+                    Token::new(TokenKind::Gt, start_line, start_column)
                 }
             }
             '&' => {
                 if self.peek_char() == Some('&') {
-                    self.next_char(); // 消费第二个 '&'
-                    Token::AndAnd // 返回 &&
+                    self.next_char();
+                    Token::new(TokenKind::AndAnd, start_line, start_column)
                 } else {
-                    Token::Error("Unexpected character: &".to_string())
+                    Token::new(
+                        TokenKind::Error("Unexpected character: &".into()),
+                        start_line,
+                        start_column,
+                    )
                 }
             }
             '|' => {
                 if self.peek_char() == Some('|') {
-                    self.next_char(); // 消费第二个 '|'
-                    Token::OrOr // 返回 ||
+                    self.next_char();
+                    Token::new(TokenKind::OrOr, start_line, start_column)
                 } else {
-                    Token::Error("Unexpected character: |".to_string())
+                    Token::new(
+                        TokenKind::Error("Unexpected character: |".into()),
+                        start_line,
+                        start_column,
+                    )
                 }
             }
             '!' => {
                 if self.peek_char() == Some('=') {
                     self.next_char();
-                    Token::NotEq
+                    Token::new(TokenKind::NotEq, start_line, start_column)
                 } else {
-                    Token::Not
+                    Token::new(TokenKind::Not, start_line, start_column)
                 }
             }
             '#' => {
-                // 注释到行尾
+                // comment until end of line
                 while let Some(nc) = self.peek_char() {
                     if nc == '\n' {
                         break;
                     }
                     self.next_char();
                 }
-                return self.next_token();
+                self.next_token()
             }
             '"' => {
-                // 字符串字面量 —— 支持转义
                 let mut s = String::new();
                 while let Some(nc) = self.next_char() {
                     if nc == '"' {
                         break;
                     }
                     if nc == '\\' {
-                        // 处理转义字符
                         if let Some(esc) = self.next_char() {
                             match esc {
                                 'n' => s.push('\n'),
@@ -163,34 +184,27 @@ impl Lexer {
                                 '\\' => s.push('\\'),
                                 '"' => s.push('"'),
                                 other => {
-                                    // 不认识的转义就原样保留
                                     s.push('\\');
                                     s.push(other);
                                 }
                             }
                             continue;
                         } else {
-                            // 反斜杠结尾，算它字面
                             s.push('\\');
                             break;
                         }
                     }
                     s.push(nc);
                 }
-                Token::StringLiteral(s)
+                Token::new(TokenKind::StringLiteral(s), start_line, start_column)
             }
             '\'' => {
-                // 字符字面量
                 let ch = self.next_char().unwrap_or('\0');
                 self.next_char(); // skip closing '
-                Token::CharLiteral(ch)
+                Token::new(TokenKind::CharLiteral(ch), start_line, start_column)
             }
-            c if c.is_ascii_digit() => {
-                // 数字字面量（支持 Int/Float/Long，同时处理 Range 情况）
-                self.lex_number(c)
-            }
+            c if c.is_ascii_digit() => self.lex_number(c, start_line, start_column),
             c if c.is_alphabetic() || c == '_' => {
-                // 标识符、关键字 或 类型
                 let mut ident = c.to_string();
                 while let Some(nc) = self.peek_char() {
                     if nc.is_alphanumeric() || nc == '_' {
@@ -199,77 +213,102 @@ impl Lexer {
                         break;
                     }
                 }
-                match ident.as_str() {
-                    "true" => Token::BoolLiteral(true),
-                    "false" => Token::BoolLiteral(false),
-
-                    // 关键字
-                    "import" | "fun" | "let" | "say" | "ask" | "as" | "if" | "else" | "loop"
-                    | "forever" | "return" | "break" | "continue" | "in" | "bark" | "sniff"
-                    | "snatch" | "lastly" => Token::Keyword(ident),
-                    // 类型
-                    "Int" | "Long" | "Float" | "Double" | "String" | "Char" | "Bool" | "Any"
-                    | "Void" | "Array" => Token::Type(ident),
-                    _ => Token::Identifier(ident),
-                }
+                let kind = match ident.as_str() {
+                    "true" => TokenKind::BoolLiteral(true),
+                    "false" => TokenKind::BoolLiteral(false),
+                    // keywords
+                    kw @ "import"
+                    | kw @ "fun"
+                    | kw @ "let"
+                    | kw @ "say"
+                    | kw @ "ask"
+                    | kw @ "as"
+                    | kw @ "if"
+                    | kw @ "else"
+                    | kw @ "loop"
+                    | kw @ "forever"
+                    | kw @ "return"
+                    | kw @ "break"
+                    | kw @ "continue"
+                    | kw @ "in"
+                    | kw @ "bark"
+                    | kw @ "sniff"
+                    | kw @ "snatch"
+                    | kw @ "lastly"
+                    | kw @ "nopaw" => TokenKind::Keyword(kw.into()),
+                    // types
+                    ty @ "Int"
+                    | ty @ "Long"
+                    | ty @ "Float"
+                    | ty @ "Double"
+                    | ty @ "String"
+                    | ty @ "Char"
+                    | ty @ "Bool"
+                    | ty @ "Any"
+                    | ty @ "Void"
+                    | ty @ "Array" => TokenKind::Type(ty.into()),
+                    _ => TokenKind::Identifier(ident.clone()),
+                };
+                Token::new(kind, start_line, start_column)
             }
-            _ => Token::Error(format!("Unexpected character: {}", c)),
+            _ => Token::new(
+                TokenKind::Error(format!("Unexpected character: {}", c)),
+                start_line,
+                start_column,
+            ),
         }
     }
 
-    fn lex_number(&mut self, first_digit: char) -> Token {
-        let mut number = first_digit.to_string();
-
-        // 连续数字
+    /// Lex a number literal (Int, Float, or Long)
+    fn lex_number(&mut self, first: char, line: usize, col: usize) -> Token {
+        let mut num = first.to_string();
         while let Some(c) = self.peek_char() {
             if c.is_ascii_digit() {
-                number.push(self.next_char().unwrap());
+                num.push(self.next_char().unwrap());
             } else {
                 break;
             }
         }
-
-        // 紧接着是 '..'（Range 操作）时，直接返回 Int
+        // range lookahead
         if self.peek_char() == Some('.') {
             if let Some('.') = self.src.get(self.pos + 1).copied() {
-                return match number.parse::<i32>() {
-                    Ok(n) => Token::IntLiteral(n),
-                    Err(_) => Token::Error("Invalid int literal".into()),
+                return match num.parse::<i32>() {
+                    Ok(n) => Token::new(TokenKind::IntLiteral(n), line, col),
+                    Err(_) => Token::new(TokenKind::Error("Invalid int literal".into()), line, col),
                 };
             }
         }
-
-        // 浮点字面量
+        // float literal
         if self.peek_char() == Some('.') {
-            number.push(self.next_char().unwrap());
+            num.push(self.next_char().unwrap());
             while let Some(c2) = self.peek_char() {
                 if c2.is_ascii_digit() {
-                    number.push(self.next_char().unwrap());
+                    num.push(self.next_char().unwrap());
                 } else {
                     break;
                 }
             }
-            return match number.parse::<f64>() {
-                Ok(f) => Token::FloatLiteral(f),
-                Err(_) => Token::Error("Invalid float".into()),
+            return match num.parse::<f64>() {
+                Ok(f) => Token::new(TokenKind::FloatLiteral(f), line, col),
+                Err(_) => Token::new(TokenKind::Error("Invalid float".into()), line, col),
             };
         }
-
-        // Long 字面量后缀
+        // long suffix
         if let Some(c) = self.peek_char() {
             if c == 'L' || c == 'l' {
-                self.next_char(); // consume 'L'
-                return match number.parse::<i64>() {
-                    Ok(n) => Token::LongLiteral(n),
-                    Err(_) => Token::Error("Invalid long literal".into()),
+                self.next_char();
+                return match num.parse::<i64>() {
+                    Ok(n) => Token::new(TokenKind::LongLiteral(n), line, col),
+                    Err(_) => {
+                        Token::new(TokenKind::Error("Invalid long literal".into()), line, col)
+                    }
                 };
             }
         }
-
-        // 普通 Int 字面量
-        match number.parse::<i32>() {
-            Ok(n) => Token::IntLiteral(n),
-            Err(_) => Token::Error("Invalid int literal".into()),
+        // int fallback
+        match num.parse::<i32>() {
+            Ok(n) => Token::new(TokenKind::IntLiteral(n), line, col),
+            Err(_) => Token::new(TokenKind::Error("Invalid int literal".into()), line, col),
         }
     }
 }

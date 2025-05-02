@@ -28,6 +28,7 @@ pub enum Expr {
     LiteralString(String),
     LiteralChar(char),
     LiteralBool(bool),
+    LiteralNopaw,
 
     Var(String),
 
