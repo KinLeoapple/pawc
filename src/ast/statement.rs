@@ -74,10 +74,11 @@ pub enum StatementKind {
 pub struct Statement {
     pub kind: StatementKind,
     pub line: usize,
+    pub col: usize,
 }
 
 impl Statement {
-    pub fn new(kind: StatementKind) -> Self {
-        Statement { kind, line: 0 }
+    pub fn new(kind: StatementKind, line: usize, col: usize) -> Self {
+        Statement { kind, line, col }
     }
 }

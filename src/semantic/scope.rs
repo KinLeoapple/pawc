@@ -101,9 +101,11 @@ impl Scope {
         ty: PawType,
         line: usize,
         column: usize,
+        filename: &str
     ) -> Result<(), PawError> {
         if self.symbols.contains_key(name) {
             Err(PawError::DuplicateDefinition {
+                file: filename.to_string(),
                 code: "E2005", // duplicate definition
                 name: name.to_string(),
                 line,

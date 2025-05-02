@@ -1,5 +1,6 @@
 // File: src/parser.rs
 
+use crate::ast::expr::ExprKind;
 use crate::ast::{BinaryOp, Expr, Param, Statement, StatementKind};
 use crate::error::error::PawError;
 use crate::lexer::token::{Token, TokenKind};
@@ -7,13 +8,35 @@ use crate::lexer::token::{Token, TokenKind};
 pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
+    lines: Vec<String>,
+    file: String,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
+    pub fn new(tokens: Vec<Token>, source: &str, filename: &str) -> Self {
+        let lines = source.lines().map(|l| l.to_string()).collect();
         Self {
             tokens,
             position: 0,
+            lines,
+            file: filename.to_string(),
+        }
+    }
+
+    /// 获取指定行的源码片段（1-based）
+    fn snippet(&self, line: usize) -> String {
+        self.lines
+            .get(line.saturating_sub(1))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// 获取当前 token 的行列 (line, col)
+    fn wrap_position(&self) -> (usize, usize) {
+        if let Some(t) = self.peek() {
+            (t.line(), t.column())
+        } else {
+            (0, 0)
         }
     }
 
@@ -58,6 +81,8 @@ impl Parser {
 
     /// Parse one statement
     pub fn parse_statement(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
+
         // Assignment: Identifier = ...
         if let Some(tok) = self.peek() {
             if let TokenKind::Identifier(_) = &tok.kind {
@@ -66,7 +91,11 @@ impl Parser {
                         let name = self.expect_identifier()?;
                         self.expect_token(TokenKind::Assign)?;
                         let value = self.parse_expr()?;
-                        return Ok(Statement::new(StatementKind::Assign { name, value }));
+                        return Ok(Statement::new(
+                            StatementKind::Assign { name, value },
+                            start_line,
+                            start_col,
+                        ));
                     }
                 }
             }
@@ -87,37 +116,21 @@ impl Parser {
                     "return" => return self.parse_return_statement(),
                     "break" => {
                         self.next();
-                        return Ok(Statement::new(StatementKind::Break));
+                        return Ok(Statement::new(StatementKind::Break, start_line, start_col));
                     }
                     "continue" => {
                         self.next();
-                        return Ok(Statement::new(StatementKind::Continue));
+                        return Ok(Statement::new(
+                            StatementKind::Continue,
+                            start_line,
+                            start_col,
+                        ));
                     }
                     "if" => return self.parse_if_statement(),
                     "loop" => return self.parse_loop_statement(),
                     "fun" => return self.parse_fun_statement(),
                     "bark" => return self.parse_throw(),
                     "sniff" => return self.parse_try_catch_finally(),
-                    "snatch" => {
-                        return Err(PawError::Syntax {
-                            code: "E1001",
-                            message: "`snatch` cannot appear alone".into(),
-                            line: tok.line,
-                            column: tok.column,
-                            snippet: None,
-                            hint: Some("`snatch` must follow a `sniff` block".into()),
-                        })
-                    }
-                    "lastly" => {
-                        return Err(PawError::Syntax {
-                            code: "E1001",
-                            message: "`lastly` cannot appear alone".into(),
-                            line: tok.line,
-                            column: tok.column,
-                            snippet: None,
-                            hint: Some("`lastly` must follow a `snatch` block".into()),
-                        })
-                    }
                     _ => {}
                 },
                 TokenKind::LBrace => {
@@ -133,6 +146,7 @@ impl Parser {
     }
 
     fn parse_let_statement(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         self.next().unwrap(); // consume 'let'
         let name = self.expect_identifier()?;
         self.expect_token(TokenKind::Colon)?;
@@ -144,45 +158,78 @@ impl Parser {
                 self.next();
                 self.expect_keyword("ask")?;
                 let prompt = self.expect_string_literal()?;
-                return Ok(Statement::new(StatementKind::Ask { name, ty, prompt }));
+                return Ok(Statement::new(
+                    StatementKind::Ask { name, ty, prompt },
+                    start_line,
+                    start_col,
+                ));
             }
         }
 
         // normal let
         self.expect_token(TokenKind::Assign)?;
         let value = self.parse_expr()?;
-        Ok(Statement::new(StatementKind::Let { name, ty, value }))
+        Ok(Statement::new(
+            StatementKind::Let { name, ty, value },
+            start_line,
+            start_col,
+        ))
     }
 
     fn parse_say_statement(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         self.expect_keyword("say")?;
         let expr = self.parse_expr()?;
-        Ok(Statement::new(StatementKind::Say(expr)))
+        Ok(Statement::new(
+            StatementKind::Say(expr),
+            start_line,
+            start_col,
+        ))
     }
 
     fn parse_ask_prompt_statement(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         self.expect_keyword("ask")?;
         let p = self.expect_string_literal()?;
-        Ok(Statement::new(StatementKind::AskPrompt(p)))
+        Ok(Statement::new(
+            StatementKind::AskPrompt(p),
+            start_line,
+            start_col,
+        ))
     }
 
     fn parse_return_statement(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         self.next().unwrap();
         if let Some(kind) = self.peek_kind() {
             if *kind == TokenKind::Eof || *kind == TokenKind::RBrace {
-                return Ok(Statement::new(StatementKind::Return(None)));
+                return Ok(Statement::new(
+                    StatementKind::Return(None),
+                    start_line,
+                    start_col,
+                ));
             }
         }
         let expr = self.parse_expr()?;
-        Ok(Statement::new(StatementKind::Return(Some(expr))))
+        Ok(Statement::new(
+            StatementKind::Return(Some(expr)),
+            start_line,
+            start_col,
+        ))
     }
 
     fn parse_expr_statement(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         let expr = self.parse_expr()?;
-        Ok(Statement::new(StatementKind::Expr(expr)))
+        Ok(Statement::new(
+            StatementKind::Expr(expr),
+            start_line,
+            start_col,
+        ))
     }
 
     pub fn parse_if_statement(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         self.next().unwrap();
         let condition = self.parse_expr()?;
         let body = self.parse_block()?;
@@ -191,26 +238,37 @@ impl Parser {
             if self.peek_keyword("if") {
                 Some(Box::new(self.parse_if_statement()?))
             } else {
-                Some(Box::new(Statement::new(StatementKind::Block(
-                    self.parse_block()?,
-                ))))
+                Some(Box::new(Statement::new(
+                    StatementKind::Block(self.parse_block()?),
+                    start_line,
+                    start_col,
+                )))
             }
         } else {
             None
         };
-        Ok(Statement::new(StatementKind::If {
-            condition,
-            body,
-            else_branch,
-        }))
+        Ok(Statement::new(
+            StatementKind::If {
+                condition,
+                body,
+                else_branch,
+            },
+            start_line,
+            start_col,
+        ))
     }
 
     fn parse_loop_statement(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         self.next().unwrap();
         if self.peek_keyword("forever") {
             self.next();
             let body = self.parse_block()?;
-            return Ok(Statement::new(StatementKind::LoopForever(body)));
+            return Ok(Statement::new(
+                StatementKind::LoopForever(body),
+                start_line,
+                start_col,
+            ));
         }
         // range loop
         if let (Some(tok1), Some(tok2)) = (self.peek(), self.peek_n(1)) {
@@ -223,22 +281,31 @@ impl Parser {
                     self.expect_token(TokenKind::Range)?;
                     let end = self.parse_expr()?;
                     let body = self.parse_block()?;
-                    return Ok(Statement::new(StatementKind::LoopRange {
-                        var: var_name,
-                        start,
-                        end,
-                        body,
-                    }));
+                    return Ok(Statement::new(
+                        StatementKind::LoopRange {
+                            var: var_name,
+                            start,
+                            end,
+                            body,
+                        },
+                        start_line,
+                        start_col,
+                    ));
                 }
             }
         }
         // while loop
         let condition = self.parse_expr()?;
         let body = self.parse_block()?;
-        Ok(Statement::new(StatementKind::LoopWhile { condition, body }))
+        Ok(Statement::new(
+            StatementKind::LoopWhile { condition, body },
+            start_line,
+            start_col,
+        ))
     }
 
     fn parse_fun_statement(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         self.expect_keyword("fun")?;
         let name = self.expect_identifier()?;
         self.expect_token(TokenKind::LParen)?;
@@ -260,17 +327,26 @@ impl Parser {
             None
         };
         let body = self.parse_block()?;
-        Ok(Statement::new(StatementKind::FunDecl {
-            name,
-            params,
-            return_type: ret,
-            body,
-        }))
+        Ok(Statement::new(
+            StatementKind::FunDecl {
+                name,
+                params,
+                return_type: ret,
+                body,
+            },
+            start_line,
+            start_col,
+        ))
     }
 
     fn parse_block_statement(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         let stmts = self.parse_block()?;
-        Ok(Statement::new(StatementKind::Block(stmts)))
+        Ok(Statement::new(
+            StatementKind::Block(stmts),
+            start_line,
+            start_col,
+        ))
     }
 
     /// Parse `{ ... }`
@@ -285,6 +361,7 @@ impl Parser {
     }
 
     fn parse_import_statement(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         self.expect_keyword("import")?;
         let mut module = Vec::new();
         loop {
@@ -293,11 +370,12 @@ impl Parser {
                     module.push(seg);
                 } else {
                     return Err(PawError::Syntax {
+                        file: self.file.clone(),
                         code: "E1001",
                         message: format!("Expected module path segment, got {:?}", tok.kind),
-                        line: tok.line,
-                        column: tok.column,
-                        snippet: None,
+                        line: tok.line(),
+                        column: tok.column(),
+                        snippet: Some(self.snippet(tok.line())),
                         hint: Some("Module path must be identifiers separated by dots".into()),
                     });
                 }
@@ -314,33 +392,41 @@ impl Parser {
         } else {
             module.last().cloned().unwrap_or_default()
         };
-        Ok(Statement::new(StatementKind::Import { module, alias }))
+        Ok(Statement::new(
+            StatementKind::Import { module, alias },
+            start_line,
+            start_col,
+        ))
     }
 
     fn parse_type(&mut self) -> Result<String, PawError> {
-        let base = if let Some(tok) = self.next() {
-            match tok.kind {
+        let (err_line, err_col) = self.wrap_position();
+        let base = match self.next() {
+            Some(tok) => match tok.kind.clone() {
                 TokenKind::Type(name) | TokenKind::Identifier(name) => name,
-                _ => {
+                other => {
                     return Err(PawError::Syntax {
+                        file: self.file.clone(),
                         code: "E1001",
-                        message: format!("Expected type, got {:?}", tok.kind),
-                        line: tok.line,
-                        column: tok.column,
-                        snippet: None,
-                        hint: Some("Type names must be identifiers or built-in types".into()),
+                        message: format!("Expected type, got {:?}", other),
+                        line: tok.line(),
+                        column: tok.column(),
+                        snippet: Some(self.snippet(tok.line())),
+                        hint: Some("Type names must be identifiers or built‑in types".into()),
                     })
                 }
+            },
+            None => {
+                return Err(PawError::Syntax {
+                    file: self.file.clone(),
+                    code: "E1001",
+                    message: "Expected type, got EOF".into(),
+                    line: err_line,
+                    column: err_col,
+                    snippet: Some(self.snippet(err_line)),
+                    hint: Some("Perhaps you forgot a type annotation".into()),
+                })
             }
-        } else {
-            return Err(PawError::Syntax {
-                code: "E1001",
-                message: "Expected type, got EOF".into(),
-                line: 0,
-                column: 0,
-                snippet: None,
-                hint: Some("Perhaps you forgot a type annotation".into()),
-            });
         };
         let mut ty = base;
         if matches!(self.peek_kind(), Some(TokenKind::Lt)) {
@@ -357,12 +443,18 @@ impl Parser {
     }
 
     fn parse_throw(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         self.expect_keyword("bark")?;
         let expr = self.parse_expr()?;
-        Ok(Statement::new(StatementKind::Throw(expr)))
+        Ok(Statement::new(
+            StatementKind::Throw(expr),
+            start_line,
+            start_col,
+        ))
     }
 
     fn parse_try_catch_finally(&mut self) -> Result<Statement, PawError> {
+        let (start_line, start_col) = self.wrap_position();
         self.expect_keyword("sniff")?;
         let body = self.parse_block()?;
         self.expect_keyword("snatch")?;
@@ -376,12 +468,16 @@ impl Parser {
         } else {
             Vec::new()
         };
-        Ok(Statement::new(StatementKind::TryCatchFinally {
-            body,
-            err_name,
-            handler,
-            finally,
-        }))
+        Ok(Statement::new(
+            StatementKind::TryCatchFinally {
+                body,
+                err_name,
+                handler,
+                finally,
+            },
+            start_line,
+            start_col,
+        ))
     }
 
     pub fn parse_expr(&mut self) -> Result<Expr, PawError> {
@@ -389,21 +485,27 @@ impl Parser {
     }
 
     fn parse_binary_expr(&mut self, min_prec: u8) -> Result<Expr, PawError> {
+        let (expr_line, expr_col) = self.wrap_position();
         let mut left = self.parse_unary_expr()?;
         while let Some(tok) = self.peek() {
-            // cast 'as'
-            if let TokenKind::Keyword(k) = &tok.kind {
-                if k == "as" && min_prec == 0 {
-                    self.next();
-                    let ty = self.parse_type()?;
-                    left = Expr::Cast {
+            let is_cast = if let TokenKind::Keyword(k) = &tok.kind {
+                k == "as" && min_prec == 0
+            } else {
+                false
+            };
+            if is_cast {
+                self.next();
+                let ty = self.parse_type()?;
+                left = Expr {
+                    kind: ExprKind::Cast {
                         expr: Box::new(left),
                         ty,
-                    };
-                    continue;
-                }
+                    },
+                    line: expr_line,
+                    col: expr_col,
+                };
+                continue;
             }
-            // other binary ops
             let (prec, right_assoc, op_kind) = match &tok.kind {
                 TokenKind::Plus => (6, false, BinaryOp::Add),
                 TokenKind::Minus => (6, false, BinaryOp::Sub),
@@ -426,10 +528,14 @@ impl Parser {
             self.next();
             let next_min = if right_assoc { prec } else { prec + 1 };
             let right = self.parse_binary_expr(next_min)?;
-            left = Expr::BinaryOp {
-                op: op_kind,
-                left: Box::new(left),
-                right: Box::new(right),
+            left = Expr {
+                kind: ExprKind::BinaryOp {
+                    op: op_kind,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+                line: expr_line,
+                col: expr_col,
             };
         }
         Ok(left)
@@ -437,21 +543,30 @@ impl Parser {
 
     fn parse_unary_expr(&mut self) -> Result<Expr, PawError> {
         if let Some(tok) = self.peek() {
+            let (expr_line, expr_col) = self.wrap_position();
             match tok.kind {
                 TokenKind::Minus => {
                     self.next();
                     let e = self.parse_unary_expr()?;
-                    return Ok(Expr::UnaryOp {
-                        op: "-".into(),
-                        expr: Box::new(e),
+                    return Ok(Expr {
+                        kind: ExprKind::UnaryOp {
+                            op: "-".into(),
+                            expr: Box::new(e),
+                        },
+                        line: expr_line,
+                        col: expr_col,
                     });
                 }
                 TokenKind::Not => {
                     self.next();
                     let e = self.parse_unary_expr()?;
-                    return Ok(Expr::UnaryOp {
-                        op: "!".into(),
-                        expr: Box::new(e),
+                    return Ok(Expr {
+                        kind: ExprKind::UnaryOp {
+                            op: "!".into(),
+                            expr: Box::new(e),
+                        },
+                        line: expr_line,
+                        col: expr_col,
                     });
                 }
                 _ => {}
@@ -461,27 +576,61 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr, PawError> {
+        let (expr_line, expr_col) = self.wrap_position();
         if self.peek_keyword("nopaw") {
             self.next().unwrap();
-            return Ok(Expr::LiteralNopaw);
+            return Ok(Expr {
+                kind: ExprKind::LiteralNopaw,
+                line: expr_line,
+                col: expr_col,
+            });
         }
+        let (err_line, err_col) = self.wrap_position();
         let tok = self.next().ok_or_else(|| PawError::Syntax {
+            file: self.file.clone(),
             code: "E1001",
             message: "Unexpected EOF in primary".into(),
-            line: 0,
-            column: 0,
-            snippet: None,
+            line: err_line,
+            column: err_col,
+            snippet: Some(self.snippet(err_line)),
             hint: Some("Expression expected".into()),
         })?;
-        let mut expr = match tok.kind {
-            TokenKind::IntLiteral(n) => Expr::LiteralInt(n),
-            TokenKind::LongLiteral(n) => Expr::LiteralLong(n),
-            TokenKind::FloatLiteral(f) => Expr::LiteralFloat(f),
-            TokenKind::BoolLiteral(b) => Expr::LiteralBool(b),
-            TokenKind::StringLiteral(s) => Expr::LiteralString(s),
-            TokenKind::CharLiteral(c) => Expr::LiteralChar(c),
-            TokenKind::Keyword(k) if k == "nopaw" => Expr::LiteralNopaw,
-            TokenKind::Identifier(n) => Expr::Var(n),
+        let mut expr = match tok.kind.clone() {
+            TokenKind::IntLiteral(n) => Expr {
+                kind: ExprKind::LiteralInt(n),
+                line: expr_line,
+                col: expr_col,
+            },
+            TokenKind::LongLiteral(n) => Expr {
+                kind: ExprKind::LiteralLong(n),
+                line: expr_line,
+                col: expr_col,
+            },
+            TokenKind::FloatLiteral(f) => Expr {
+                kind: ExprKind::LiteralFloat(f),
+                line: expr_line,
+                col: expr_col,
+            },
+            TokenKind::BoolLiteral(b) => Expr {
+                kind: ExprKind::LiteralBool(b),
+                line: expr_line,
+                col: expr_col,
+            },
+            TokenKind::StringLiteral(s) => Expr {
+                kind: ExprKind::LiteralString(s),
+                line: expr_line,
+                col: expr_col,
+            },
+            TokenKind::CharLiteral(c) => Expr {
+                kind: ExprKind::LiteralChar(c),
+                line: expr_line,
+                col: expr_col,
+            },
+            TokenKind::Identifier(n) => Expr {
+                kind: ExprKind::Var(n),
+                line: expr_line,
+                col: expr_col,
+            },
             TokenKind::LParen => {
                 let e = self.parse_expr()?;
                 self.expect_token(TokenKind::RParen)?;
@@ -496,26 +645,28 @@ impl Parser {
                     }
                 }
                 self.expect_token(TokenKind::RBracket)?;
-                Expr::ArrayLiteral(elems)
+                Expr {
+                    kind: ExprKind::ArrayLiteral(elems),
+                    line: expr_line,
+                    col: expr_col,
+                }
             }
             other => {
                 return Err(PawError::Syntax {
+                    file: self.file.clone(),
                     code: "E1001",
                     message: format!("Unexpected {:?} in primary", other),
-                    line: tok.line,
-                    column: tok.column,
-                    snippet: None,
+                    line: tok.line(),
+                    column: tok.column(),
+                    snippet: Some(self.snippet(tok.line())),
                     hint: Some("Check expression syntax".into()),
                 })
             }
         };
-        if let Expr::LiteralNopaw = expr {
-            return Ok(expr);
-        }
-        // suffix loop
         loop {
             match self.peek_kind() {
                 Some(TokenKind::LParen) => {
+                    let (call_line, call_col) = self.wrap_position();
                     self.next();
                     let mut args = Vec::new();
                     while !matches!(self.peek_kind(), Some(TokenKind::RParen)) {
@@ -525,38 +676,54 @@ impl Parser {
                         }
                     }
                     self.expect_token(TokenKind::RParen)?;
-                    expr = Expr::Call {
-                        name: match expr {
-                            Expr::Var(n) => n,
-                            _ => {
-                                return Err(PawError::Syntax {
-                                    code: "E1001",
-                                    message: "Invalid call target".into(),
-                                    line: 0,
-                                    column: 0,
-                                    snippet: None,
-                                    hint: None,
-                                })
-                            }
-                        },
-                        args,
+                    let name = if let Expr {
+                        kind: ExprKind::Var(n),
+                        ..
+                    } = expr.clone()
+                    {
+                        n
+                    } else {
+                        return Err(PawError::Syntax {
+                            file: self.file.clone(),
+                            code: "E1001",
+                            message: "Invalid call target".into(),
+                            line: call_line,
+                            column: call_col,
+                            snippet: Some(self.snippet(call_line)),
+                            hint: None,
+                        });
+                    };
+                    expr = Expr {
+                        kind: ExprKind::Call { name, args },
+                        line: expr_line,
+                        col: expr_col,
                     };
                 }
                 Some(TokenKind::LBracket) => {
+                    let (idx_line, idx_col) = self.wrap_position();
                     self.next();
                     let idx = self.parse_expr()?;
                     self.expect_token(TokenKind::RBracket)?;
-                    expr = Expr::Index {
-                        array: Box::new(expr),
-                        index: Box::new(idx),
+                    expr = Expr {
+                        kind: ExprKind::Index {
+                            array: Box::new(expr),
+                            index: Box::new(idx),
+                        },
+                        line: expr_line,
+                        col: expr_col,
                     };
                 }
                 Some(TokenKind::Dot) => {
+                    let (prop_line, prop_col) = self.wrap_position();
                     self.next();
                     let prop = self.expect_identifier()?;
-                    expr = Expr::Property {
-                        object: Box::new(expr),
-                        name: prop,
+                    expr = Expr {
+                        kind: ExprKind::Property {
+                            object: Box::new(expr),
+                            name: prop,
+                        },
+                        line: expr_line,
+                        col: expr_col,
                     };
                 }
                 _ => break,
@@ -573,49 +740,62 @@ impl Parser {
         match self.next() {
             Some(tok) if tok.kind == expected => Ok(()),
             Some(tok) => Err(PawError::Syntax {
+                file: self.file.clone(),
                 code: "E1001",
                 message: format!("Expected {:?}, got {:?}", expected, tok.kind),
-                line: tok.line,
-                column: tok.column,
-                snippet: None,
+                line: tok.line(),
+                column: tok.column(),
+                snippet: Some(self.snippet(tok.line())),
                 hint: Some("Check token".into()),
             }),
-            None => Err(PawError::Syntax {
-                code: "E1001",
-                message: format!("Expected {:?}, got EOF", expected),
-                line: 0,
-                column: 0,
-                snippet: None,
-                hint: Some("Unexpected end of input".into()),
-            }),
+            None => {
+                let (line, column) = self
+                    .tokens
+                    .get(self.position.saturating_sub(1))
+                    .map(|t| (t.line(), t.column()))
+                    .unwrap_or((0, 0));
+                Err(PawError::Syntax {
+                    file: self.file.clone(),
+                    code: "E1001",
+                    message: format!("Expected {:?}, got EOF", expected),
+                    line,
+                    column,
+                    snippet: Some(self.snippet(line)),
+                    hint: Some("Unexpected end of input".into()),
+                })
+            }
         }
     }
 
     fn expect_keyword(&mut self, kw: &str) -> Result<(), PawError> {
         if let Some(tok) = self.next() {
-            // borrow the inner string instead of moving it
             if let TokenKind::Keyword(ref k2) = tok.kind {
                 if k2 == kw {
                     return Ok(());
                 }
             }
-            // if we reach here, it wasn't the keyword we wanted:
-            let got = tok.kind.clone(); // clone for error‑reporting
             return Err(PawError::Syntax {
+                file: self.file.clone(),
                 code: "E1001",
-                message: format!("Expected keyword '{}', got {:?}", kw, got),
-                line: tok.line,
-                column: tok.column,
-                snippet: None,
+                message: format!("Expected keyword '{}``, got {:?}", kw, tok.kind),
+                line: tok.line(),
+                column: tok.column(),
+                snippet: Some(self.snippet(tok.line())),
                 hint: Some("Check your keyword spelling".into()),
             });
         }
+        let (line, column) = self
+            .tokens
+            .get(self.position.saturating_sub(1))
+            .map(|t| (t.line(), t.column()))
+            .unwrap_or((0, 0));
         Err(PawError::Syntax {
+            file: self.file.clone(),
             code: "E1001",
-            message: format!("Expected keyword '{}', got EOF", kw),
-            line: 0,
-            column: 0,
-            snippet: None,
+            message: format!("Expected keyword '{}`, got EOF", kw),
+            line,
+            column,
+            snippet: Some(self.snippet(line)),
             hint: None,
         })
     }
@@ -626,20 +806,27 @@ impl Parser {
                 return Ok(n);
             }
             return Err(PawError::Syntax {
+                file: self.file.clone(),
                 code: "E1001",
                 message: format!("Expected identifier, got {:?}", tok.kind),
-                line: tok.line,
-                column: tok.column,
-                snippet: None,
+                line: tok.line(),
+                column: tok.column(),
+                snippet: Some(self.snippet(tok.line())),
                 hint: None,
             });
         }
+        let (line, column) = self
+            .tokens
+            .get(self.position.saturating_sub(1))
+            .map(|t| (t.line(), t.column()))
+            .unwrap_or((0, 0));
         Err(PawError::Syntax {
+            file: self.file.clone(),
             code: "E1001",
             message: "Expected identifier, got EOF".into(),
-            line: 0,
-            column: 0,
-            snippet: None,
+            line,
+            column,
+            snippet: Some(self.snippet(line)),
             hint: None,
         })
     }
@@ -650,20 +837,27 @@ impl Parser {
                 return Ok(s);
             }
             return Err(PawError::Syntax {
+                file: self.file.clone(),
                 code: "E1001",
                 message: format!("Expected string literal, got {:?}", tok.kind),
-                line: tok.line,
-                column: tok.column,
-                snippet: None,
+                line: tok.line(),
+                column: tok.column(),
+                snippet: Some(self.snippet(tok.line())),
                 hint: None,
             });
         }
+        let (line, column) = self
+            .tokens
+            .get(self.position.saturating_sub(1))
+            .map(|t| (t.line(), t.column()))
+            .unwrap_or((0, 0));
         Err(PawError::Syntax {
+            file: self.file.clone(),
             code: "E1001",
             message: "Expected string literal, got EOF".into(),
-            line: 0,
-            column: 0,
-            snippet: None,
+            line,
+            column,
+            snippet: Some(self.snippet(line)),
             hint: None,
         })
     }

@@ -16,12 +16,19 @@ pub enum BinaryOp {
     Ge,
     And,
     Or,
-    As
+    As,
 }
 
-/// 表达式
+/// 抽象语法树中的表达式节点，直接携带行列
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
+pub struct Expr {
+    pub kind: ExprKind,
+    pub line: usize,  // 行号
+    pub col: usize,   // 列号
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExprKind {
     LiteralInt(i32),
     LiteralLong(i64),
     LiteralFloat(f64),

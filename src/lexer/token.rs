@@ -66,16 +66,16 @@ impl Token {
     pub fn new(kind: TokenKind, line: usize, column: usize) -> Self {
         Token { kind, line, column }
     }
-    
+
     pub fn kind(&self) -> &TokenKind {
         &self.kind
     }
-    
+
     pub fn line(&self) -> usize {
         self.line
     }
-    
-    pub fn column(&self) -> usize { 
+
+    pub fn column(&self) -> usize {
         self.column
     }
 }

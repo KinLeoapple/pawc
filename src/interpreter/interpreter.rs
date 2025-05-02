@@ -1,5 +1,6 @@
 // src/interpreter.rs
 
+use crate::ast::expr::ExprKind;
 use crate::ast::{BinaryOp, Expr, Statement, StatementKind};
 use crate::error::error::PawError;
 use crate::lexer::lex::Lexer;
@@ -41,6 +42,7 @@ impl PartialEq for Value {
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Array(a1), Value::Array(a2)) => a1 == a2,
             (Value::Void, Value::Void) => true,
+            (Value::Null, Value::Null) => true,
             // Function、不同变体或类型不匹配都算不相等
             _ => false,
         }
@@ -63,14 +65,15 @@ impl PartialOrd for Value {
 }
 
 impl Value {
-    fn to_bool(&self) -> Result<bool, PawError> {
+    fn to_bool(&self, expr: &Expr, file: &str) -> Result<bool, PawError> {
         match self {
             Value::Bool(b) => Ok(*b),
             _ => Err(PawError::Type {
+                file: file.to_string(),
                 code: "E4001".into(),
                 message: format!("Cannot convert {:?} to bool", self),
-                line: 0,
-                column: 0,
+                line: expr.line,
+                column: expr.col,
                 snippet: None,
                 hint: None,
             }),
@@ -107,12 +110,14 @@ enum ExecResult {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Env {
     scopes: Vec<HashMap<String, Value>>,
+    file: String,
 }
 
 impl Env {
-    pub fn new() -> Self {
+    pub fn new(filename: &str) -> Self {
         Env {
             scopes: vec![HashMap::new()],
+            file: filename.to_string(),
         }
     }
 
@@ -137,6 +142,7 @@ impl Env {
             }
         }
         Err(PawError::UndefinedVariable {
+            file: self.file.clone(),
             code: "E2003".into(),
             name: name.into(),
             line: 0,
@@ -159,11 +165,12 @@ impl Env {
 /// 解释器主体
 pub struct Interpreter {
     env: Env,
+    file: String,
 }
 
 impl Interpreter {
-    pub fn new() -> Self {
-        Interpreter { env: Env::new() }
+    pub fn new(filename: &str) -> Self {
+        Interpreter { env: Env::new(filename), file: filename.to_string() }
     }
 
     /// 执行整个程序
@@ -212,21 +219,22 @@ impl Interpreter {
                 }
                 path.set_extension("paw");
                 let src = std::fs::read_to_string(&path).map_err(|e| PawError::Internal {
-                    code:    "E5001".into(),
+                    file: self.file.clone(),
+                    code: "E5001".into(),
                     message: format!("cannot import {:?}: {}", path, e),
-                    line:    0,
-                    column:  0,
+                    line: 0,
+                    column: 0,
                     snippet: None,
-                    hint:    Some("Check that the file exists and is readable.".into()),
+                    hint: Some("Check that the file exists and is readable.".into()),
                 })?;
 
                 // 重新编译运行子模块
                 let tokens = Lexer::new(&src).tokenize();
-                let mut p = Parser::new(tokens);
+                let mut p = Parser::new(tokens, &src, path.to_str().unwrap_or_default());
                 let ast = p.parse_program()?;
-                let mut tc = crate::semantic::type_checker::TypeChecker::new();
+                let mut tc = crate::semantic::type_checker::TypeChecker::new(path.to_str().unwrap_or_default());
                 tc.check_statements(&ast)?;
-                let mut sub = Interpreter::new();
+                let mut sub = Interpreter::new(path.to_str().unwrap_or_default());
                 sub.run(&ast)?;
 
                 // 把子模块顶层符号收集到一个 map
@@ -262,25 +270,33 @@ impl Interpreter {
                 Ok(ExecResult::Normal)
             }
 
-            StatementKind::Ask { name, ty: _, prompt } => {
+            StatementKind::Ask {
+                name,
+                ty: _,
+                prompt,
+            } => {
                 print!("{}", prompt);
                 std::io::stdout().flush().map_err(|e| PawError::Internal {
-                    code:    "E5002".into(),
+                    file: self.file.clone(),
+                    code: "E5002".into(),
                     message: e.to_string(),
-                    line:    0,
-                    column:  0,
+                    line: 0,
+                    column: 0,
                     snippet: None,
-                    hint:    Some("Failed to flush stdout.".into()),
+                    hint: Some("Failed to flush stdout.".into()),
                 })?;
                 let mut line = String::new();
-                std::io::stdin().read_line(&mut line).map_err(|e| PawError::Internal {
-                    code:    "E5003".into(),
-                    message: e.to_string(),
-                    line:    0,
-                    column:  0,
-                    snippet: None,
-                    hint:    Some("Failed to read from stdin.".into()),
-                })?;
+                std::io::stdin()
+                    .read_line(&mut line)
+                    .map_err(|e| PawError::Internal {
+                        file: self.file.clone(),
+                        code: "E5003".into(),
+                        message: e.to_string(),
+                        line: 0,
+                        column: 0,
+                        snippet: None,
+                        hint: Some("Failed to read from stdin.".into()),
+                    })?;
                 self.env.define(name.clone(), Value::String(line.into()));
                 Ok(ExecResult::Normal)
             }
@@ -288,22 +304,26 @@ impl Interpreter {
             StatementKind::AskPrompt(prompt) => {
                 print!("{}", prompt);
                 std::io::stdout().flush().map_err(|e| PawError::Internal {
-                    code:    "E5002".into(),
+                    file: self.file.clone(),
+                    code: "E5002".into(),
                     message: e.to_string(),
-                    line:    0,
-                    column:  0,
+                    line: 0,
+                    column: 0,
                     snippet: None,
-                    hint:    Some("Failed to flush stdout.".into()),
+                    hint: Some("Failed to flush stdout.".into()),
                 })?;
                 let mut line = String::new();
-                std::io::stdin().read_line(&mut line).map_err(|e| PawError::Internal {
-                    code:    "E5003".into(),
-                    message: e.to_string(),
-                    line:    0,
-                    column:  0,
-                    snippet: None,
-                    hint:    Some("Failed to read from stdin.".into()),
-                })?;
+                std::io::stdin()
+                    .read_line(&mut line)
+                    .map_err(|e| PawError::Internal {
+                        file: self.file.clone(),
+                        code: "E5003".into(),
+                        message: e.to_string(),
+                        line: 0,
+                        column: 0,
+                        snippet: None,
+                        hint: Some("Failed to read from stdin.".into()),
+                    })?;
                 Ok(ExecResult::Normal)
             }
 
@@ -324,9 +344,13 @@ impl Interpreter {
                 Ok(ExecResult::Normal)
             }
 
-            StatementKind::If { condition, body, else_branch } => {
+            StatementKind::If {
+                condition,
+                body,
+                else_branch,
+            } => {
                 let c = self.eval_expr(condition)?;
-                if c.to_bool()? {
+                if c.to_bool(condition, &*self.file)? {
                     self.env.push();
                     let res = self.exec_block(body)?;
                     self.env.pop();
@@ -362,7 +386,7 @@ impl Interpreter {
             }
 
             StatementKind::LoopWhile { condition, body } => {
-                while self.eval_expr(condition)?.to_bool()? {
+                while self.eval_expr(condition)?.to_bool(condition, &*self.file)? {
                     self.env.push();
                     match self.exec_block(body)? {
                         ExecResult::Normal => {}
@@ -381,17 +405,23 @@ impl Interpreter {
                 Ok(ExecResult::Normal)
             }
 
-            StatementKind::LoopRange { var, start, end, body } => {
+            StatementKind::LoopRange {
+                var,
+                start,
+                end,
+                body,
+            } => {
                 let s = match self.eval_expr(start)? {
                     Value::Int(i) => i,
                     _ => {
                         return Err(PawError::Type {
-                            code:    "E4001".into(),
+                            file: self.file.clone(),
+                            code: "E4001".into(),
                             message: "Range start not Int".into(),
-                            line:    0,
-                            column:  0,
+                            line: 0,
+                            column: 0,
                             snippet: None,
-                            hint:    Some("Use an Int for range start.".into()),
+                            hint: Some("Use an Int for range start.".into()),
                         })
                     }
                 };
@@ -399,12 +429,13 @@ impl Interpreter {
                     Value::Int(i) => i,
                     _ => {
                         return Err(PawError::Type {
-                            code:    "E4001".into(),
+                            file: self.file.clone(),
+                            code: "E4001".into(),
                             message: "Range end not Int".into(),
-                            line:    0,
-                            column:  0,
+                            line: 0,
+                            column: 0,
                             snippet: None,
-                            hint:    Some("Use an Int for range end.".into()),
+                            hint: Some("Use an Int for range end.".into()),
                         })
                     }
                 };
@@ -440,16 +471,22 @@ impl Interpreter {
             StatementKind::Throw(expr) => {
                 let v = self.eval_expr(expr)?;
                 Err(PawError::Codegen {
-                    code:    "E6001".into(),
+                    file: self.file.clone(),
+                    code: "E6001".into(),
                     message: format!("{:?}", v),
-                    line:    0,
-                    column:  0,
+                    line: 0,
+                    column: 0,
                     snippet: None,
-                    hint:    Some("Uncaught exception.".into()),
+                    hint: Some("Uncaught exception.".into()),
                 })
             }
 
-            StatementKind::TryCatchFinally { body, err_name, handler, finally } => {
+            StatementKind::TryCatchFinally {
+                body,
+                err_name,
+                handler,
+                finally,
+            } => {
                 let try_res = (|| -> Result<ExecResult, PawError> {
                     for s in body {
                         self.exec_stmt(s)?;
@@ -476,77 +513,84 @@ impl Interpreter {
 
     /// 计算表达式的值
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value, PawError> {
-        match expr {
-            Expr::LiteralInt(i)    => Ok(Value::Int(*i)),
-            Expr::LiteralLong(l)   => Ok(Value::Long(*l)),
-            Expr::LiteralFloat(f)  => Ok(Value::Float(*f)),
-            Expr::LiteralString(s) => Ok(Value::String(s.clone())),
-            Expr::LiteralBool(b)   => Ok(Value::Bool(*b)),
-            Expr::LiteralChar(c)   => Ok(Value::Char(*c)),
-            Expr::LiteralNopaw      => Ok(Value::Null),
+        match &expr.kind {
+            ExprKind::LiteralInt(i) => Ok(Value::Int(*i)),
+            ExprKind::LiteralLong(l) => Ok(Value::Long(*l)),
+            ExprKind::LiteralFloat(f) => Ok(Value::Float(*f)),
+            ExprKind::LiteralString(s) => Ok(Value::String(s.clone())),
+            ExprKind::LiteralBool(b) => Ok(Value::Bool(*b)),
+            ExprKind::LiteralChar(c) => Ok(Value::Char(*c)),
+            ExprKind::LiteralNopaw => Ok(Value::Null),
 
-            Expr::Cast { expr: inner, ty } => {
+            ExprKind::Cast { expr: inner, ty } => {
                 let v = self.eval_expr(inner)?;
                 match (v, ty.as_str()) {
-                    (Value::Int(i),   "Float")  => Ok(Value::Float(i as f64)),
-                    (Value::Int(i),   "Long")   => Ok(Value::Long(i as i64)),
-                    (Value::Long(l),  "Float")  => Ok(Value::Float(l as f64)),
-                    (Value::Long(l),  "Int")    => Ok(Value::Int(l as i32)),
-                    (Value::Float(f), "Int")    => Ok(Value::Int(f as i32)),
-                    (Value::Float(f), "Long")   => Ok(Value::Long(f as i64)),
-                    (Value::String(s),"Int")    => {
+                    (Value::Int(i), "Float") => Ok(Value::Float(i as f64)),
+                    (Value::Int(i), "Long") => Ok(Value::Long(i as i64)),
+                    (Value::Long(l), "Float") => Ok(Value::Float(l as f64)),
+                    (Value::Long(l), "Int") => Ok(Value::Int(l as i32)),
+                    (Value::Float(f), "Int") => Ok(Value::Int(f as i32)),
+                    (Value::Float(f), "Long") => Ok(Value::Long(f as i64)),
+                    (Value::String(s), "Int") => {
                         let n = s.parse::<i32>().map_err(|_| PawError::Type {
-                            code:    "E4001".into(),
+                            file: self.file.clone(),
+                            code: "E4001".into(),
                             message: format!("Cannot cast string '{}' to Int", s),
-                            line:    0,
-                            column:  0,
+                            line: expr.line,
+                            column: expr.col,
                             snippet: None,
-                            hint:    Some("Ensure the string contains a valid integer.".into()),
+                            hint: Some("Ensure the string contains a valid integer.".into()),
                         })?;
                         Ok(Value::Int(n))
                     }
                     (val, "String") => Ok(Value::String(val.to_string_value())),
-                    (val, "Bool")   => Ok(Value::Bool(val.to_bool()?)),
+                    (val, "Bool") => Ok(Value::Bool(val.to_bool(inner, &*self.file)?)),
                     (val, t) if format!("{:?}", val) == t => Ok(val),
                     (val, t) => Err(PawError::Type {
-                        code:    "E4001".into(),
+                        file: self.file.clone(),
+                        code: "E4001".into(),
                         message: format!("Cannot cast {:?} to {}", val, t),
-                        line:    0,
-                        column:  0,
+                        line: expr.line,
+                        column: expr.col,
                         snippet: None,
-                        hint:    None,
+                        hint: None,
                     }),
                 }
             }
 
-            Expr::Var(name) => self.env.get(name).ok_or_else(|| PawError::UndefinedVariable {
-                code:    "E2003".into(),
-                name:    name.clone(),
-                line:    0,
-                column:  0,
-                snippet: None,
-                hint:    Some("Check variable name or scope.".into()),
-            }),
+            ExprKind::Var(name) => self
+                .env
+                .get(name)
+                .ok_or_else(|| PawError::UndefinedVariable {
+                    file: self.file.clone(),
+                    code: "E2003".into(),
+                    name: name.clone(),
+                    line: expr.line,
+                    column: expr.col,
+                    snippet: None,
+                    hint: Some("Check variable name or scope.".into()),
+                }),
 
-            Expr::UnaryOp { op, expr: inner } => {
+            ExprKind::UnaryOp { op, expr: inner } => {
                 let v = self.eval_expr(inner)?;
                 match (op.as_str(), v.clone()) {
-                    ("-", Value::Int(i))   => Ok(Value::Int(-i)),
-                    ("-", Value::Long(l))  => Ok(Value::Long(-l)),
+                    ("-", Value::Int(i)) => Ok(Value::Int(-i)),
+                    ("-", Value::Long(l)) => Ok(Value::Long(-l)),
                     ("-", Value::Float(f)) => Ok(Value::Float(-f)),
-                    ("!", v)               => Ok(Value::Bool(!v.to_bool()?)),
+                    ("!", v) => Ok(Value::Bool(!v.to_bool(inner, &*self.file)?)),
                     _ => Err(PawError::Type {
-                        code:    "E4001".into(),
+                        file: self.file.clone(),
+                        code: "E4001".into(),
                         message: format!("Bad unary `{}` on {:?}", op, v),
-                        line:    0,
-                        column:  0,
+                        line: expr.line,
+                        column: expr.col,
                         snippet: None,
-                        hint:    None,
+                        hint: None,
                     }),
                 }
             }
 
-            Expr::BinaryOp { op, left, right } => {
+            ExprKind::BinaryOp { op, left, right } => {
                 let l = self.eval_expr(left)?;
                 let r = self.eval_expr(right)?;
                 let val = match op {
@@ -558,123 +602,132 @@ impl Interpreter {
                             return Ok(Value::String(l.to_string_value() + &b));
                         }
                         match (l, r) {
-                            (Value::Int(a),   Value::Int(b))   => Ok(Value::Int(a + b)),
-                            (Value::Long(a),  Value::Long(b))  => Ok(Value::Long(a + b)),
+                            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
+                            (Value::Long(a), Value::Long(b)) => Ok(Value::Long(a + b)),
                             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
                             _ => Err(PawError::Type {
-                                code:    "E4001".into(),
+                                file: self.file.clone(),
+                                code: "E4001".into(),
                                 message: "Bad + operands".into(),
-                                line:    0,
-                                column:  0,
+                                line: expr.line,
+                                column: expr.col,
                                 snippet: None,
-                                hint:    None,
+                                hint: None,
                             }),
                         }
                     }
                     BinaryOp::Sub => Ok(match (l, r) {
-                        (Value::Int(a),   Value::Int(b))   => Value::Int(a - b),
-                        (Value::Long(a),  Value::Long(b))  => Value::Long(a - b),
+                        (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
+                        (Value::Long(a), Value::Long(b)) => Value::Long(a - b),
                         (Value::Float(a), Value::Float(b)) => Value::Float(a - b),
                         _ => {
                             return Err(PawError::Type {
-                                code:    "E4001".into(),
+                                file: self.file.clone(),
+                                code: "E4001".into(),
                                 message: "Bad - operands".into(),
-                                line:    0,
-                                column:  0,
+                                line: expr.line,
+                                column: expr.col,
                                 snippet: None,
-                                hint:    None,
+                                hint: None,
                             })
                         }
                     }),
                     BinaryOp::Mul => Ok(match (l, r) {
-                        (Value::Int(a),   Value::Int(b))   => Value::Int(a * b),
-                        (Value::Long(a),  Value::Long(b))  => Value::Long(a * b),
+                        (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
+                        (Value::Long(a), Value::Long(b)) => Value::Long(a * b),
                         (Value::Float(a), Value::Float(b)) => Value::Float(a * b),
                         _ => {
                             return Err(PawError::Type {
-                                code:    "E4001".into(),
+                                file: self.file.clone(),
+                                code: "E4001".into(),
                                 message: "Bad * operands".into(),
-                                line:    0,
-                                column:  0,
+                                line: expr.line,
+                                column: expr.col,
                                 snippet: None,
-                                hint:    None,
+                                hint: None,
                             })
                         }
                     }),
                     BinaryOp::Div => Ok(match (l, r) {
-                        (Value::Int(a),   Value::Int(b))   => Value::Int(a / b),
-                        (Value::Long(a),  Value::Long(b))  => Value::Long(a / b),
+                        (Value::Int(a), Value::Int(b)) => Value::Int(a / b),
+                        (Value::Long(a), Value::Long(b)) => Value::Long(a / b),
                         (Value::Float(a), Value::Float(b)) => Value::Float(a / b),
                         _ => {
                             return Err(PawError::Type {
-                                code:    "E4001".into(),
+                                file: self.file.clone(),
+                                code: "E4001".into(),
                                 message: "Bad / operands".into(),
-                                line:    0,
-                                column:  0,
+                                line: expr.line,
+                                column: expr.col,
                                 snippet: None,
-                                hint:    None,
+                                hint: None,
                             })
                         }
                     }),
                     BinaryOp::Mod => Ok(match (l, r) {
-                        (Value::Int(a),   Value::Int(b))   => Value::Int(a % b),
-                        (Value::Long(a),  Value::Long(b))  => Value::Long(a % b),
+                        (Value::Int(a), Value::Int(b)) => Value::Int(a % b),
+                        (Value::Long(a), Value::Long(b)) => Value::Long(a % b),
                         (Value::Float(a), Value::Float(b)) => Value::Float(a % b),
                         _ => {
                             return Err(PawError::Type {
-                                code:    "E4001".into(),
+                                file: self.file.clone(),
+                                code: "E4001".into(),
                                 message: "Bad % operands".into(),
-                                line:    0,
-                                column:  0,
+                                line: expr.line,
+                                column: expr.col,
                                 snippet: None,
-                                hint:    None,
+                                hint: None,
                             })
                         }
                     }),
-                    BinaryOp::EqEq   => Ok(Value::Bool(l == r)),
-                    BinaryOp::NotEq  => Ok(Value::Bool(l != r)),
-                    BinaryOp::Lt     => Ok(Value::Bool(l < r)),
-                    BinaryOp::Le     => Ok(Value::Bool(l <= r)),
-                    BinaryOp::Gt     => Ok(Value::Bool(l > r)),
-                    BinaryOp::Ge     => Ok(Value::Bool(l >= r)),
-                    BinaryOp::And    => Ok(Value::Bool(l.to_bool()? && r.to_bool()?)),
-                    BinaryOp::Or     => Ok(Value::Bool(l.to_bool()? || r.to_bool()?)),
-                    BinaryOp::As     => {
+                    BinaryOp::EqEq => Ok(Value::Bool(l == r)),
+                    BinaryOp::NotEq => Ok(Value::Bool(l != r)),
+                    BinaryOp::Lt => Ok(Value::Bool(l < r)),
+                    BinaryOp::Le => Ok(Value::Bool(l <= r)),
+                    BinaryOp::Gt => Ok(Value::Bool(l > r)),
+                    BinaryOp::Ge => Ok(Value::Bool(l >= r)),
+                    BinaryOp::And => Ok(Value::Bool(l.to_bool(expr, &*self.file)? && r.to_bool(expr, &*self.file)?)),
+                    BinaryOp::Or => Ok(Value::Bool(l.to_bool(expr, &*self.file)? || r.to_bool(expr, &*self.file)?)),
+                    BinaryOp::As => {
                         return Err(PawError::Internal {
-                            code:    "E5004".into(),
+                            file: self.file.clone(),
+                            code: "E5004".into(),
                             message: format!("Unhandled binary operator in interpreter: {:?}", op),
-                            line:    0,
-                            column:  0,
+                            line: expr.line,
+                            column: expr.col,
                             snippet: None,
-                            hint:    Some("This should have been lowered to a cast.".into()),
+                            hint: Some("This should have been lowered to a cast.".into()),
                         });
                     }
                 };
                 Ok(val?)
             }
 
-            Expr::Call { name, args } => {
+            ExprKind::Call { name, args } => {
                 let f = if let Some(f) = self.env.get(name) {
                     f
                 } else if let Some((mod_name, member)) = name.split_once('.') {
                     match self.env.get(mod_name) {
-                        Some(Value::Module(table)) => table
-                            .get(member)
-                            .cloned()
-                            .ok_or_else(|| PawError::UndefinedVariable {
-                                code: "E2003".into(),
-                                name: name.clone(),
-                                line: 0,
-                                column: 0,
-                                snippet: None,
-                                hint: Some("Check spelling or scope.".into()),
-                            })?,
+                        Some(Value::Module(table)) => {
+                            table.get(member).cloned().ok_or_else(|| {
+                                PawError::UndefinedVariable {
+                                    file: self.file.clone(),
+                                    code: "E2003".into(),
+                                    name: name.clone(),
+                                    line: expr.line,
+                                    column: expr.col,
+                                    snippet: None,
+                                    hint: Some("Check spelling or scope.".into()),
+                                }
+                            })?
+                        }
                         _ => {
                             return Err(PawError::UndefinedVariable {
+                                file: self.file.clone(),
                                 code: "E2003".into(),
                                 name: name.clone(),
-                                line: 0,
-                                column: 0,
+                                line: expr.line,
+                                column: expr.col,
                                 snippet: None,
                                 hint: Some("Check spelling or scope.".into()),
                             })
@@ -682,26 +735,36 @@ impl Interpreter {
                     }
                 } else {
                     return Err(PawError::UndefinedVariable {
+                        file: self.file.clone(),
                         code: "E2003".into(),
                         name: name.clone(),
-                        line: 0,
-                        column: 0,
+                        line: expr.line,
+                        column: expr.col,
                         snippet: None,
                         hint: Some("Check spelling or scope.".into()),
                     });
                 };
-                if let Value::Function { params, body, env: fn_env } = f {
+                if let Value::Function {
+                    params,
+                    body,
+                    env: fn_env,
+                } = f
+                {
                     if args.len() != params.len() {
                         return Err(PawError::Type {
+                            file: self.file.clone(),
                             code: "E4001".into(),
                             message: "Arg count mismatch".into(),
-                            line: 0,
-                            column: 0,
+                            line: expr.line,
+                            column: expr.col,
                             snippet: None,
                             hint: None,
                         });
                     }
-                    let mut sub = Interpreter { env: fn_env.clone() };
+                    let mut sub = Interpreter {
+                        env: fn_env.clone(),
+                        file: self.file.clone(),
+                    };
                     sub.env.push();
                     for (p, arg) in params.iter().zip(args.iter()) {
                         let v = self.eval_expr(arg)?;
@@ -721,17 +784,18 @@ impl Interpreter {
                     }
                 } else {
                     Err(PawError::Type {
+                        file: self.file.clone(),
                         code: "E4001".into(),
                         message: format!("{} is not a function", name),
-                        line: 0,
-                        column: 0,
+                        line: expr.line,
+                        column: expr.col,
                         snippet: None,
                         hint: None,
                     })
                 }
             }
 
-            Expr::ArrayLiteral(elems) => {
+            ExprKind::ArrayLiteral(elems) => {
                 let mut vec = Vec::new();
                 for e in elems {
                     vec.push(self.eval_expr(e)?);
@@ -739,61 +803,73 @@ impl Interpreter {
                 Ok(Value::Array(vec))
             }
 
-            Expr::Index { array, index } => {
+            ExprKind::Index { array, index } => {
                 let arr = self.eval_expr(array)?;
                 let idx = self.eval_expr(index)?;
                 let i = match idx {
                     Value::Int(i) => i as usize,
-                    _ => return Err(PawError::Type {
-                        code:    "E4001".into(),
-                        message: "Index not Int".into(),
-                        line:    0,
-                        column:  0,
-                        snippet: None,
-                        hint:    Some("Use an Int index.".into()),
-                    }),
+                    _ => {
+                        return Err(PawError::Type {
+                            file: self.file.clone(),
+                            code: "E4001".into(),
+                            message: "Index not Int".into(),
+                            line: expr.line,
+                            column: expr.col,
+                            snippet: None,
+                            hint: Some("Use an Int index.".into()),
+                        })
+                    }
                 };
-                if let Value::Array(mut v) = arr {
+                if let Value::Array(v) = arr {
                     v.get(i).cloned().ok_or_else(|| PawError::Internal {
-                        code:    "E5005".into(),
+                        file: self.file.clone(),
+                        code: "E5005".into(),
                         message: "Index out of bounds".into(),
-                        line:    0,
-                        column:  0,
+                        line: expr.line,
+                        column: expr.col,
                         snippet: None,
-                        hint:    None,
+                        hint: None,
                     })
                 } else {
                     Err(PawError::Type {
-                        code:    "E4001".into(),
+                        file: self.file.clone(),
+                        code: "E4001".into(),
                         message: "Not an array".into(),
-                        line:    0,
-                        column:  0,
+                        line: expr.line,
+                        column: expr.col,
                         snippet: None,
-                        hint:    None,
+                        hint: None,
                     })
                 }
             }
 
-            Expr::Property { object, name } => {
+            ExprKind::Property { object, name } => {
                 let obj_val = self.eval_expr(object)?;
                 match obj_val {
-                    Value::Array(v) if name == "length"  => Ok(Value::Int(v.len() as i32)),
+                    Value::Array(v) if name == "length" => Ok(Value::Int(v.len() as i32)),
                     Value::String(v) if name == "length" => Ok(Value::Int(v.len() as i32)),
-                    Value::Module(table) => table.get(name).cloned().ok_or_else(|| PawError::UndefinedVariable {
-                        code:    "E2003".into(),
-                        name:    format!("{}.{}", "<module>", name),
-                        line:    0,
-                        column:  0,
-                        snippet: None,
-                        hint:    Some("Check module member name.".into()),
-                    }),
+                    Value::Module(table) => {
+                        table
+                            .get(name)
+                            .cloned()
+                            .ok_or_else(|| PawError::UndefinedVariable {
+                                file: self.file.clone(),
+                                code: "E2003".into(),
+                                name: format!("{}.{}", "<module>", name),
+                                line: expr.line,
+                                column: expr.col,
+                                snippet: None,
+                                hint: Some("Check module member name.".into()),
+                            })
+                    }
                     _ => Err(PawError::Type {
-                        code:    "E4001".into(),
+                        file: self.file.clone(),
+                        code: "E4001".into(),
                         message: format!("Type {:?} has no property `{}`", obj_val, name),
-                        line:    0,
-                        column:  0,
+                        line: expr.line,
+                        column: expr.col,
                         snippet: None,
-                        hint:    None,
+                        hint: None,
                     }),
                 }
             }
