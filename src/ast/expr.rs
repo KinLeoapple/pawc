@@ -1,5 +1,7 @@
 // src/ast/expr.rs
 
+use crate::ast::method::Method;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
     LiteralInt(i32),
@@ -31,7 +33,7 @@ pub enum ExprKind {
 
     MethodCall {
         receiver: Box<Expr>,
-        method: String,
+        method: Method,
         args: Vec<Expr>,
     },
 

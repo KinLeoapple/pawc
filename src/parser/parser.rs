@@ -1,6 +1,7 @@
 // src/parser.rs
 
 use crate::ast::expr::{BinaryOp, Expr, ExprKind};
+use crate::ast::method::Method;
 use crate::ast::param::Param;
 use crate::ast::statement::{Statement, StatementKind};
 use crate::error::error::PawError;
@@ -684,7 +685,7 @@ impl Parser {
                         ExprKind::FieldAccess { expr: obj, field } => Expr {
                             kind: ExprKind::MethodCall {
                                 receiver: obj,
-                                method: field,
+                                method: self.parse_method(&*field),
                                 args,
                             },
                             line,
@@ -867,5 +868,24 @@ impl Parser {
             }
         }
         Ok(params)
+    }
+
+    fn parse_method(&self, name: &str) -> Method {
+        match name {
+            "trim"         => Method::Trim,
+            "to_uppercase" => Method::ToUppercase,
+            "to_lowercase" => Method::ToLowercase,
+            "length"       => {
+                // 根据前面解析的 receiver 类型决定是 String 还是 Array
+                // 这里暂时都存 Length，让解释器再分支
+                Method::Length
+            }
+            "starts_with"  => Method::StartsWith,
+            "ends_with"    => Method::EndsWith,
+            "contains"     => Method::Contains,
+            "push"         => Method::Push,
+            "pop"          => Method::Pop,
+            _              => Method::Other,
+        }
     }
 }

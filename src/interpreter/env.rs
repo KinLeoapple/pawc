@@ -1,82 +1,56 @@
 // src/interpreter/env.rs
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
-
 use crate::error::error::PawError;
 use crate::interpreter::value::Value;
+use ahash::AHashMap;
+use std::sync::RwLock;
+use std::sync::Arc;
 
 /// 实际存数据的结构
 #[derive(Debug)]
 struct EnvInner {
-    values: HashMap<String, Value>,
+    values: AHashMap<String, Value>,
     parent: Option<Env>,
 }
 
 /// 对外的环境句柄
 #[derive(Clone, Debug)]
-pub struct Env(Arc<Mutex<EnvInner>>);
+pub struct Env(Arc<RwLock<AHashMap<String, Value>>>);
 
 impl Env {
+    /// 创建一个全新空环境
     pub fn new() -> Self {
-        Env(Arc::new(Mutex::new(EnvInner {
-            values: HashMap::new(),
-            parent: None,
-        })))
+        Env(Arc::new(RwLock::new(AHashMap::new())))
     }
 
+    /// 基于父环境创建一个新环境（浅拷贝所有现有绑定）
     pub fn with_parent(parent: &Env) -> Self {
-        Env(Arc::new(Mutex::new(EnvInner {
-            values: HashMap::new(),
-            parent: Some(parent.clone()),
-        })))
+        let map = parent.0.read().unwrap().clone();
+        Env(Arc::new(RwLock::new(map)))
     }
 
-    pub fn keys(&self) -> Vec<String> {
-        let guard = self.0.lock().unwrap();
-        guard.values.keys().cloned().collect()
+    /// 定义或覆盖一个变量
+    pub fn define(&self, key: String, val: Value) {
+        let mut w = self.0.write().unwrap();
+        w.insert(key, val);
     }
 
-    /// 返回当前环境中所有顶层绑定的拷贝
-    pub fn bindings(&self) -> HashMap<String, Value> {
-        // 锁住内部，然后克隆出 values
-        let guard = self.0.lock().unwrap();
-        guard.values.clone()
+    /// 导出当前所有绑定
+    pub fn bindings(&self) -> AHashMap<String, Value> {
+        self.0.read().unwrap().clone()
     }
-
-    /// 返回当前层所有定义的 key→value 副本，用于 Import 之后把子环境导出
-    pub fn snapshot(&self) -> HashMap<String, Value> {
-        // 复制当前层的 values
-        let guard = self.0.lock().unwrap();
-        guard.values.clone()
-    }
-
-    pub fn define(&self, name: String, val: Value) {
-        let mut guard = self.0.lock().unwrap();
-        guard.values.insert(name, val);
-    }
-
-    pub fn assign(&self, name: &str, val: Value) -> Result<(), PawError> {
-        // 先在锁内看看是不是自己定义的；如果不是，就把 parent clone 出来
-        let parent_opt = {
-            let mut guard = self.0.lock().unwrap();
-            if guard.values.contains_key(name) {
-                guard.values.insert(name.to_string(), val);
-                return Ok(());
-            }
-            guard.parent.clone()
-        }; // guard 在这里就 drop 了
-
-        // 锁已经释放，递归调用父环境
-        if let Some(parent) = parent_opt {
-            parent.assign(name, val)
+    
+    /// 更新已存在变量，否则报错
+    pub fn assign(&self, key: &str, val: Value) -> Result<(), PawError> {
+        let mut w = self.0.write().unwrap();
+        if w.contains_key(key) {
+            w.insert(key.to_string(), val);
+            Ok(())
         } else {
             Err(PawError::UndefinedVariable {
                 file: "<runtime>".into(),
                 code: "E4001",
-                name: name.into(),
+                name: key.into(),
                 line: 0,
                 column: 0,
                 snippet: None,
@@ -85,20 +59,8 @@ impl Env {
         }
     }
 
-    pub fn get(&self, name: &str) -> Option<Value> {
-        // 同样，先在锁内查一次本层，拿到 parent 的 clone
-        let (found, parent_opt) = {
-            let guard = self.0.lock().unwrap();
-            let v = guard.values.get(name).cloned();
-            (v, guard.parent.clone())
-        }; // guard drop
-
-        if let Some(v) = found {
-            Some(v)
-        } else if let Some(parent) = parent_opt {
-            parent.get(name)
-        } else {
-            None
-        }
+    pub fn get(&self, key: &str) -> Option<Value> {
+        let r = self.0.read().unwrap();
+        r.get(key).cloned()
     }
 }
