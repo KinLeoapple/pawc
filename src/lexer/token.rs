@@ -1,11 +1,11 @@
-// File: src/lexer/token.rs
+// src/lexer/token.rs
 
-/// The different kinds of tokens (without position information)
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     // Literals
     IntLiteral(i32),
-    FloatLiteral(f64),
+    FloatLiteral(f32),
+    DoubleLiteral(f64),
     LongLiteral(i64),
     StringLiteral(String),
     CharLiteral(char),
@@ -33,7 +33,7 @@ pub enum TokenKind {
     Not,
     Assign,
     LeftArrow,
-    Range,    // '..'
+    Range,    // ".."
     Question,
 
     // Delimiters
@@ -41,19 +41,18 @@ pub enum TokenKind {
     RParen,
     LBrace,
     RBrace,
-    LBracket, // '['
-    RBracket, // ']'
+    LBracket,
+    RBracket,
     Comma,
     Colon,
-    Dot,      // '.'
+    Dot,
 
-    // Other
     Comment(String),
     Eof,
     Error(String),
 }
 
-/// A spanned token with kind and source location
+/// 带源位置信息的 Token
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
@@ -62,7 +61,6 @@ pub struct Token {
 }
 
 impl Token {
-    /// Construct a new token at given line and column
     pub fn new(kind: TokenKind, line: usize, column: usize) -> Self {
         Token { kind, line, column }
     }
@@ -70,12 +68,6 @@ impl Token {
     pub fn kind(&self) -> &TokenKind {
         &self.kind
     }
-
-    pub fn line(&self) -> usize {
-        self.line
-    }
-
-    pub fn column(&self) -> usize {
-        self.column
-    }
+    pub fn line(&self) -> usize { self.line }
+    pub fn column(&self) -> usize { self.column }
 }

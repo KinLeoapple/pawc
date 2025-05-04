@@ -1,878 +1,880 @@
-// src/interpreter.rs
+// src/interpreter/interpreter.rs
 
-use crate::ast::expr::ExprKind;
-use crate::ast::{BinaryOp, Expr, Statement, StatementKind};
+use crate::ast::expr::{Expr, ExprKind};
+use crate::ast::statement::{Statement, StatementKind};
 use crate::error::error::PawError;
-use crate::lexer::lex::Lexer;
+use crate::interpreter::env::Env;
+use crate::interpreter::value::Value;
+use crate::lexer::lexer::Lexer;
 use crate::parser::parser::Parser;
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::io::Write;
+use crate::semantic::type_checker::TypeChecker;
+use std::future::Future;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
 
-/// 运行时值
-#[derive(Debug, Clone)]
-pub enum Value {
-    Int(i32),
-    Long(i64),
-    Float(f64),
-    Bool(bool),
-    Char(char),
-    String(String),
-    Array(Vec<Value>),
-    Function {
-        params: Vec<String>,
-        body: Vec<Statement>,
-        // 闭包时捕获的外部环境
-        env: Env,
-    },
-    Module(HashMap<String, Value>),
-    Void, // return; 时使用
-    Null,
-}
-
-// －－－ 手写 PartialEq －－－
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => a == b,
-            (Value::Long(a), Value::Long(b)) => a == b,
-            (Value::Float(a), Value::Float(b)) => a == b,
-            (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Char(a), Value::Char(b)) => a == b,
-            (Value::String(a), Value::String(b)) => a == b,
-            (Value::Array(a1), Value::Array(a2)) => a1 == a2,
-            (Value::Void, Value::Void) => true,
-            (Value::Null, Value::Null) => true,
-            // Function、不同变体或类型不匹配都算不相等
-            _ => false,
-        }
-    }
-}
-
-// －－－ 手写 PartialOrd －－－
-impl PartialOrd for Value {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => a.partial_cmp(b),
-            (Value::Long(a), Value::Long(b)) => a.partial_cmp(b),
-            (Value::Float(a), Value::Float(b)) => a.partial_cmp(b),
-            (Value::Char(a), Value::Char(b)) => a.partial_cmp(b),
-            (Value::String(a), Value::String(b)) => a.partial_cmp(b),
-            // 其余情况（Bool、Array、Function、Void）不支持大小比较
-            _ => None,
-        }
-    }
-}
-
-impl Value {
-    fn to_bool(&self, expr: &Expr, file: &str) -> Result<bool, PawError> {
-        match self {
-            Value::Bool(b) => Ok(*b),
-            _ => Err(PawError::Type {
-                file: file.to_string(),
-                code: "E4001".into(),
-                message: format!("Cannot convert {:?} to bool", self),
-                line: expr.line,
-                column: expr.col,
-                snippet: None,
-                hint: None,
-            }),
-        }
-    }
-
-    fn to_string_value(&self) -> String {
-        match self {
-            Value::Null => "null".to_string(),
-            Value::String(s) => s.clone(),
-            Value::Int(i) => i.to_string(),
-            Value::Long(l) => l.to_string(),
-            Value::Float(f) => f.to_string(),
-            Value::Bool(b) => b.to_string(),
-            Value::Char(c) => c.to_string(),
-            Value::Array(a) => format!("{:?}", a),
-            Value::Module(m) => format!("{:?}", m),
-            Value::Void => "void".to_string(),
-            Value::Function { .. } => "<fn>".into(),
-        }
-    }
-}
-
-/// 执行结果，用于控制流（return/break/continue）
-#[derive(Debug)]
-enum ExecResult {
-    Normal,
-    Return(Value),
-    Break,
-    Continue,
-}
-
-/// 运行时环境：一系列嵌套作用域
-#[derive(Debug, Clone, PartialEq)]
-pub struct Env {
-    scopes: Vec<HashMap<String, Value>>,
-    file: String,
-}
-
-impl Env {
-    pub fn new(filename: &str) -> Self {
-        Env {
-            scopes: vec![HashMap::new()],
-            file: filename.to_string(),
-        }
-    }
-
-    pub fn push(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-
-    pub fn pop(&mut self) {
-        self.scopes.pop();
-    }
-
-    pub fn define(&mut self, name: String, val: Value) {
-        let top = self.scopes.last_mut().unwrap();
-        top.insert(name, val);
-    }
-
-    pub fn set(&mut self, name: &str, val: Value) -> Result<(), PawError> {
-        for scope in self.scopes.iter_mut().rev() {
-            if scope.contains_key(name) {
-                scope.insert(name.into(), val);
-                return Ok(());
-            }
-        }
-        Err(PawError::UndefinedVariable {
-            file: self.file.clone(),
-            code: "E2003".into(),
-            name: name.into(),
-            line: 0,
-            column: 0,
-            snippet: None,
-            hint: Some("Check spelling or scope.".into()),
-        })
-    }
-
-    pub fn get(&self, name: &str) -> Option<Value> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(v) = scope.get(name) {
-                return Some(v.clone());
-            }
-        }
-        None
-    }
-}
-
-/// 解释器主体
+/// 主解释器
 pub struct Interpreter {
-    env: Env,
-    file: String,
+    pub env: Env,
+    pub file: String,
 }
 
 impl Interpreter {
-    pub fn new(filename: &str) -> Self {
-        Interpreter { env: Env::new(filename), file: filename.to_string() }
+    /// 创建一个新的解释器实例
+    pub fn new(env: Env, file: &str) -> Self {
+        Interpreter {
+            env,
+            file: file.to_string(),
+        }
     }
 
-    /// 执行整个程序
-    pub fn run(&mut self, stmts: &[Statement]) -> Result<(), PawError> {
-        // 先把所有顶层函数声明绑到环境里
-        for stmt in stmts {
-            if let StatementKind::FunDecl {
-                name,
-                params,
-                return_type: _,
-                body,
-            } = &stmt.kind
-            {
-                let f = Value::Function {
-                    params: params.iter().map(|p| p.name.clone()).collect(),
-                    body: body.clone(),
-                    env: self.env.clone(),
-                };
-                self.env.define(name.clone(), f);
+    /// 执行多条语句，遇到 return/throw 提前返回
+    pub fn eval_statements<'a>(
+        &'a mut self,
+        stmts: &'a [Statement],
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Value>, PawError>> + 'a>> {
+        Box::pin(async move {
+            for stmt in stmts {
+                if let Some(v) = self.eval_statement(stmt).await? {
+                    return Ok(Some(v));
+                }
             }
-        }
-        // 然后执行顶层语句
-        self.exec_block(stmts)?;
-        Ok(())
-    }
-
-    /// 执行一系列语句
-    fn exec_block(&mut self, stmts: &[Statement]) -> Result<ExecResult, PawError> {
-        for stmt in stmts {
-            match self.exec_stmt(stmt)? {
-                ExecResult::Normal => continue,
-                other => return Ok(other),
-            }
-        }
-        Ok(ExecResult::Normal)
+            Ok(None)
+        })
     }
 
     /// 执行单条语句
-    fn exec_stmt(&mut self, stmt: &Statement) -> Result<ExecResult, PawError> {
-        match &stmt.kind {
-            StatementKind::Import { module, alias } => {
-                // 构造文件名并读取
-                let mut path = std::path::PathBuf::new();
-                for seg in module {
-                    path.push(seg);
+    pub fn eval_statement<'a>(
+        &'a mut self,
+        stmt: &'a Statement,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Value>, PawError>> + 'a>> {
+        Box::pin(async move {
+            match &stmt.kind {
+                StatementKind::Let { name, ty: _, value } => {
+                    let v = self.eval_expr(value).await?;
+                    self.env.define(name.clone(), v);
+                    Ok(None)
                 }
-                path.set_extension("paw");
-                let src = std::fs::read_to_string(&path).map_err(|e| PawError::Internal {
-                    file: self.file.clone(),
-                    code: "E5001".into(),
-                    message: format!("cannot import {:?}: {}", path, e),
-                    line: 0,
-                    column: 0,
-                    snippet: None,
-                    hint: Some("Check that the file exists and is readable.".into()),
-                })?;
 
-                // 重新编译运行子模块
-                let tokens = Lexer::new(&src).tokenize();
-                let mut p = Parser::new(tokens, &src, path.to_str().unwrap_or_default());
-                let ast = p.parse_program()?;
-                let mut tc = crate::semantic::type_checker::TypeChecker::new(path.to_str().unwrap_or_default());
-                tc.check_statements(&ast)?;
-                let mut sub = Interpreter::new(path.to_str().unwrap_or_default());
-                sub.run(&ast)?;
+                StatementKind::Assign { name, value } => {
+                    let v = self.eval_expr(value).await?;
+                    self.env.assign(name, v)?;
+                    Ok(None)
+                }
 
-                // 把子模块顶层符号收集到一个 map
-                let mut module_map = HashMap::new();
-                for scope in &sub.env.scopes {
-                    for (k, v) in scope {
-                        module_map.insert(k.clone(), v.clone());
-                        // 同时也可扁平绑定 alias.k
-                        let full = format!("{}.{}", alias, k);
-                        self.env.define(full, v.clone());
+                StatementKind::Say(expr) => {
+                    let v = self.eval_expr(expr).await?;
+                    println!("{:?}", v);
+                    Ok(None)
+                }
+
+                StatementKind::Ask {
+                    name,
+                    ty: _,
+                    prompt,
+                } => {
+                    print!("{}", prompt);
+                    // 确保 prompt 立刻显示在终端
+                    use std::io::Write;
+                    let _ = std::io::stdout().flush();
+                    let mut buf = String::new();
+                    let _ = std::io::stdin().read_line(&mut buf);
+
+                    self.env
+                        .define(name.clone(), Value::String(buf.trim_end().to_string()));
+
+                    Ok(None)
+                }
+
+                StatementKind::AskPrompt(prompt) => {
+                    print!("{}", prompt);
+                    // 同样要 flush
+                    use std::io::Write;
+                    let _ = std::io::stdout().flush();
+                    let mut buf = String::new();
+                    let _ = std::io::stdin().read_line(&mut buf);
+                    Ok(None)
+                }
+
+                StatementKind::Import { module, alias } => {
+                    // 1. 拼出文件路径
+                    let base_path = Path::new(&self.file);
+                    let mut path = PathBuf::new();
+                    path.push(base_path.parent().unwrap_or(Path::new(".")));
+                    for seg in module {
+                        path.push(seg);
                     }
-                }
-                // 给 alias 自身绑定一个 Module 值
-                self.env.define(alias.clone(), Value::Module(module_map));
-                Ok(ExecResult::Normal)
-            }
+                    path.set_extension("paw");
 
-            StatementKind::Let { name, ty: _, value } => {
-                let v = self.eval_expr(value)?;
-                self.env.define(name.clone(), v);
-                Ok(ExecResult::Normal)
-            }
-
-            StatementKind::Say(expr) => {
-                let v = self.eval_expr(expr)?;
-                println!("{}", v.to_string_value());
-                Ok(ExecResult::Normal)
-            }
-
-            StatementKind::Assign { name, value } => {
-                let v = self.eval_expr(value)?;
-                self.env.set(name, v)?; // 更新已存在的变量
-                Ok(ExecResult::Normal)
-            }
-
-            StatementKind::Ask {
-                name,
-                ty: _,
-                prompt,
-            } => {
-                print!("{}", prompt);
-                std::io::stdout().flush().map_err(|e| PawError::Internal {
-                    file: self.file.clone(),
-                    code: "E5002".into(),
-                    message: e.to_string(),
-                    line: 0,
-                    column: 0,
-                    snippet: None,
-                    hint: Some("Failed to flush stdout.".into()),
-                })?;
-                let mut line = String::new();
-                std::io::stdin()
-                    .read_line(&mut line)
-                    .map_err(|e| PawError::Internal {
-                        file: self.file.clone(),
-                        code: "E5003".into(),
-                        message: e.to_string(),
-                        line: 0,
-                        column: 0,
-                        snippet: None,
-                        hint: Some("Failed to read from stdin.".into()),
-                    })?;
-                self.env.define(name.clone(), Value::String(line.into()));
-                Ok(ExecResult::Normal)
-            }
-
-            StatementKind::AskPrompt(prompt) => {
-                print!("{}", prompt);
-                std::io::stdout().flush().map_err(|e| PawError::Internal {
-                    file: self.file.clone(),
-                    code: "E5002".into(),
-                    message: e.to_string(),
-                    line: 0,
-                    column: 0,
-                    snippet: None,
-                    hint: Some("Failed to flush stdout.".into()),
-                })?;
-                let mut line = String::new();
-                std::io::stdin()
-                    .read_line(&mut line)
-                    .map_err(|e| PawError::Internal {
-                        file: self.file.clone(),
-                        code: "E5003".into(),
-                        message: e.to_string(),
-                        line: 0,
-                        column: 0,
-                        snippet: None,
-                        hint: Some("Failed to read from stdin.".into()),
-                    })?;
-                Ok(ExecResult::Normal)
-            }
-
-            StatementKind::Return(opt) => {
-                let v = if let Some(e) = opt {
-                    self.eval_expr(e)?
-                } else {
-                    Value::Void
-                };
-                Ok(ExecResult::Return(v))
-            }
-
-            StatementKind::Break => Ok(ExecResult::Break),
-            StatementKind::Continue => Ok(ExecResult::Continue),
-
-            StatementKind::Expr(expr) => {
-                let _ = self.eval_expr(expr)?;
-                Ok(ExecResult::Normal)
-            }
-
-            StatementKind::If {
-                condition,
-                body,
-                else_branch,
-            } => {
-                let c = self.eval_expr(condition)?;
-                if c.to_bool(condition, &*self.file)? {
-                    self.env.push();
-                    let res = self.exec_block(body)?;
-                    self.env.pop();
-                    Ok(res)
-                } else if let Some(else_stmt) = else_branch {
-                    self.env.push();
-                    let res = self.exec_stmt(else_stmt)?;
-                    self.env.pop();
-                    Ok(res)
-                } else {
-                    Ok(ExecResult::Normal)
-                }
-            }
-
-            StatementKind::LoopForever(body) => {
-                loop {
-                    self.env.push();
-                    match self.exec_block(body)? {
-                        ExecResult::Normal => {}
-                        ExecResult::Break => {
-                            self.env.pop();
-                            break;
-                        }
-                        ExecResult::Continue => {}
-                        ret @ ExecResult::Return(_) => {
-                            self.env.pop();
-                            return Ok(ret);
-                        }
-                    }
-                    self.env.pop();
-                }
-                Ok(ExecResult::Normal)
-            }
-
-            StatementKind::LoopWhile { condition, body } => {
-                while self.eval_expr(condition)?.to_bool(condition, &*self.file)? {
-                    self.env.push();
-                    match self.exec_block(body)? {
-                        ExecResult::Normal => {}
-                        ExecResult::Break => {
-                            self.env.pop();
-                            break;
-                        }
-                        ExecResult::Continue => {}
-                        ret @ ExecResult::Return(_) => {
-                            self.env.pop();
-                            return Ok(ret);
-                        }
-                    }
-                    self.env.pop();
-                }
-                Ok(ExecResult::Normal)
-            }
-
-            StatementKind::LoopRange {
-                var,
-                start,
-                end,
-                body,
-            } => {
-                let s = match self.eval_expr(start)? {
-                    Value::Int(i) => i,
-                    _ => {
-                        return Err(PawError::Type {
+                    // 2. 读源码
+                    let src = std::fs::read_to_string(&path).map_err(|e| {
+                        // 根据 kind 构造英文提示
+                        let message = match e.kind() {
+                            ErrorKind::NotFound => {
+                                format!("Module file not found: {}", path.display())
+                            }
+                            ErrorKind::PermissionDenied => {
+                                format!("Permission denied reading module file: {}", path.display())
+                            }
+                            _ => format!("Failed to read module file: {}", path.display()),
+                        };
+                        PawError::Internal {
                             file: self.file.clone(),
-                            code: "E4001".into(),
-                            message: "Range start not Int".into(),
+                            code: "E1002".into(),
+                            message,
                             line: 0,
                             column: 0,
                             snippet: None,
-                            hint: Some("Use an Int for range start.".into()),
-                        })
-                    }
-                };
-                let e = match self.eval_expr(end)? {
-                    Value::Int(i) => i,
-                    _ => {
-                        return Err(PawError::Type {
-                            file: self.file.clone(),
-                            code: "E4001".into(),
-                            message: "Range end not Int".into(),
-                            line: 0,
-                            column: 0,
-                            snippet: None,
-                            hint: Some("Use an Int for range end.".into()),
-                        })
-                    }
-                };
-                for i in s..e {
-                    self.env.push();
-                    self.env.define(var.clone(), Value::Int(i));
-                    match self.exec_block(body)? {
-                        ExecResult::Normal => {}
-                        ExecResult::Break => {
-                            self.env.pop();
-                            break;
+                            hint: Some(
+                                "Check that the module file exists and the path is correct".into(),
+                            ),
                         }
-                        ExecResult::Continue => {}
-                        ret @ ExecResult::Return(_) => {
-                            self.env.pop();
-                            return Ok(ret);
+                    })?;
+
+                    // 3. 词法 & 解析
+                    let tokens = Lexer::new(&src).tokenize();
+                    let mut parser = Parser::new(tokens, &src, &*path.to_string_lossy());
+                    let stmts = parser.parse_program()?;
+
+                    // 4. 语义检查
+                    let mut checker = TypeChecker::new(&*path.to_string_lossy());
+                    checker.check_program(&stmts)?;
+
+                    // 5. 执行模块
+                    let module_env = Env::with_parent(&self.env);
+                    let mut module_interp =
+                        Interpreter::new(module_env.clone(), &*path.to_string_lossy());
+                    let _ = module_interp.eval_statements(&stmts).await?;
+
+                    // 6. 收集子环境所有顶层绑定，打包成 Module
+                    let module_val = {
+                        let m = module_env.bindings();
+                        Value::Module(m)
+                    };
+
+                    self.env.define(alias.clone(), module_val);
+                    Ok(None)
+                }
+
+                StatementKind::Return(opt) => {
+                    let v = if let Some(e) = opt {
+                        self.eval_expr(e).await?
+                    } else {
+                        Value::Null
+                    };
+                    Ok(Some(v))
+                }
+
+                StatementKind::Break => Ok(Some(Value::Bool(true))),
+                StatementKind::Continue => Ok(Some(Value::Bool(false))),
+
+                StatementKind::Expr(expr) => {
+                    let _ = self.eval_expr(expr).await?;
+                    Ok(None)
+                }
+
+                StatementKind::If {
+                    condition,
+                    body,
+                    else_branch,
+                } => {
+                    let cond = self.eval_expr(condition).await?;
+                    if let Value::Bool(true) = cond {
+                        let res = self.eval_statements(body).await?;
+                        if res.is_some() {
+                            return Ok(res);
+                        }
+                    } else if let Some(else_stmt) = else_branch {
+                        let res = self.eval_statement(else_stmt).await?;
+                        if res.is_some() {
+                            return Ok(res);
                         }
                     }
-                    self.env.pop();
+                    Ok(None)
                 }
-                Ok(ExecResult::Normal)
-            }
 
-            StatementKind::FunDecl { .. } => Ok(ExecResult::Normal),
-
-            StatementKind::Block(stmts) => {
-                self.env.push();
-                let res = self.exec_block(stmts)?;
-                self.env.pop();
-                Ok(res)
-            }
-
-            StatementKind::Throw(expr) => {
-                let v = self.eval_expr(expr)?;
-                Err(PawError::Codegen {
-                    file: self.file.clone(),
-                    code: "E6001".into(),
-                    message: format!("{:?}", v),
-                    line: 0,
-                    column: 0,
-                    snippet: None,
-                    hint: Some("Uncaught exception.".into()),
-                })
-            }
-
-            StatementKind::TryCatchFinally {
-                body,
-                err_name,
-                handler,
-                finally,
-            } => {
-                let try_res = (|| -> Result<ExecResult, PawError> {
-                    for s in body {
-                        self.exec_stmt(s)?;
+                StatementKind::LoopForever(body) => loop {
+                    let res = self.eval_statements(body).await?;
+                    if res.is_some() {
+                        return Ok(res);
                     }
-                    Ok(ExecResult::Normal)
-                })();
+                },
 
-                if let Err(err) = try_res {
-                    let msg = err.to_string();
-                    self.env.define(err_name.clone(), Value::String(msg));
-                    for s in handler {
-                        self.exec_stmt(s)?;
+                StatementKind::LoopWhile { condition, body } => {
+                    while let Value::Bool(true) = self.eval_expr(condition).await? {
+                        let res = self.eval_statements(body).await?;
+                        if res.is_some() {
+                            return Ok(res);
+                        }
                     }
+                    Ok(None)
                 }
 
-                for s in finally {
-                    self.exec_stmt(s)?;
+                StatementKind::LoopRange {
+                    var,
+                    start,
+                    end,
+                    body,
+                } => {
+                    let s = self.eval_expr(start).await?;
+                    let e = self.eval_expr(end).await?;
+                    if let (Value::Int(si), Value::Int(ei)) = (s, e) {
+                        for i in si..ei {
+                            self.env.define(var.clone(), Value::Int(i));
+                            let res = self.eval_statements(body).await?;
+                            if res.is_some() {
+                                return Ok(res);
+                            }
+                        }
+                    }
+                    Ok(None)
                 }
 
-                Ok(ExecResult::Normal)
+                StatementKind::FunDecl {
+                    name,
+                    params,
+                    return_type: _,
+                    is_async,
+                    body,
+                } => {
+                    let func = Value::Function {
+                        name: name.clone(),
+                        params: params.clone(),
+                        body: body.clone(),
+                        env: self.env.clone(),
+                        is_async: *is_async,
+                    };
+                    self.env.define(name.clone(), func);
+                    Ok(None)
+                }
+
+                StatementKind::Block(stmts) => {
+                    let child_env = Env::with_parent(&self.env);
+                    let mut child = Interpreter::new(child_env, &self.file);
+                    let _ = child.eval_statements(stmts).await?;
+                    Ok(None)
+                }
+
+                StatementKind::TryCatchFinally {
+                    body,
+                    err_name,
+                    handler,
+                    finally,
+                } => {
+                    // try
+                    let try_res = {
+                        let mut ti = Interpreter::new(Env::with_parent(&self.env), &self.file);
+                        ti.eval_statements(body).await
+                    };
+                    match try_res {
+                        Ok(Some(v)) => return Ok(Some(v)),
+                        Ok(None) => { /* 正常 */ }
+                        Err(err) => {
+                            if let PawError::Runtime { message, .. } = err {
+                                // catch
+                                let mut ci =
+                                    Interpreter::new(Env::with_parent(&self.env), &self.file);
+                                ci.env.define(err_name.clone(), Value::String(message));
+                                let catch_r = ci.eval_statements(handler).await?;
+                                // finally
+                                let _ = Interpreter::new(Env::with_parent(&self.env), &self.file)
+                                    .eval_statements(finally)
+                                    .await?;
+                                return Ok(catch_r);
+                            } else {
+                                return Err(err);
+                            }
+                        }
+                    }
+                    // finally after normal
+                    let _ = Interpreter::new(Env::with_parent(&self.env), &self.file)
+                        .eval_statements(finally)
+                        .await?;
+                    Ok(None)
+                }
+
+                StatementKind::RecordDecl { .. } => Ok(None),
+
+                StatementKind::Throw(expr) => {
+                    let v = self.eval_expr(expr).await?;
+                    Err(PawError::Runtime {
+                        file: self.file.clone(),
+                        code: "E6001",
+                        message: format!("{:?}", v),
+                        line: stmt.line,
+                        column: stmt.col,
+                        snippet: None,
+                        hint: Some("Uncaught exception".into()),
+                    })
+                }
             }
-        }
+        })
     }
 
-    /// 计算表达式的值
-    fn eval_expr(&mut self, expr: &Expr) -> Result<Value, PawError> {
-        match &expr.kind {
-            ExprKind::LiteralInt(i) => Ok(Value::Int(*i)),
-            ExprKind::LiteralLong(l) => Ok(Value::Long(*l)),
-            ExprKind::LiteralFloat(f) => Ok(Value::Float(*f)),
-            ExprKind::LiteralString(s) => Ok(Value::String(s.clone())),
-            ExprKind::LiteralBool(b) => Ok(Value::Bool(*b)),
-            ExprKind::LiteralChar(c) => Ok(Value::Char(*c)),
-            ExprKind::LiteralNopaw => Ok(Value::Null),
+    /// 计算表达式，返回一个可 await 的 Future
+    pub fn eval_expr<'a>(
+        &'a mut self,
+        expr: &'a Expr,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, PawError>> + 'a>> {
+        Box::pin(async move {
+            match &expr.kind {
+                ExprKind::LiteralInt(n) => Ok(Value::Int(*n)),
+                ExprKind::LiteralLong(n) => Ok(Value::Long(*n)),
+                ExprKind::LiteralFloat(f) => Ok(Value::Float(*f)),
+                ExprKind::LiteralDouble(f) => Ok(Value::Double(*f)),
+                ExprKind::LiteralString(s) => Ok(Value::String(s.clone())),
+                ExprKind::LiteralBool(b) => Ok(Value::Bool(*b)),
+                ExprKind::LiteralChar(c) => Ok(Value::Char(*c)),
+                ExprKind::LiteralNopaw => Ok(Value::Null),
 
-            ExprKind::Cast { expr: inner, ty } => {
-                let v = self.eval_expr(inner)?;
-                match (v, ty.as_str()) {
-                    (Value::Int(i), "Float") => Ok(Value::Float(i as f64)),
-                    (Value::Int(i), "Long") => Ok(Value::Long(i as i64)),
-                    (Value::Long(l), "Float") => Ok(Value::Float(l as f64)),
-                    (Value::Long(l), "Int") => Ok(Value::Int(l as i32)),
-                    (Value::Float(f), "Int") => Ok(Value::Int(f as i32)),
-                    (Value::Float(f), "Long") => Ok(Value::Long(f as i64)),
-                    (Value::String(s), "Int") => {
-                        let n = s.parse::<i32>().map_err(|_| PawError::Type {
+                ExprKind::Var(name) => {
+                    self.env
+                        .get(name.as_str())
+                        .ok_or_else(|| PawError::UndefinedVariable {
                             file: self.file.clone(),
-                            code: "E4001".into(),
-                            message: format!("Cannot cast string '{}' to Int", s),
+                            code: "E4001",
+                            name: name.clone(),
                             line: expr.line,
                             column: expr.col,
                             snippet: None,
-                            hint: Some("Ensure the string contains a valid integer.".into()),
-                        })?;
-                        Ok(Value::Int(n))
-                    }
-                    (val, "String") => Ok(Value::String(val.to_string_value())),
-                    (val, "Bool") => Ok(Value::Bool(val.to_bool(inner, &*self.file)?)),
-                    (val, t) if format!("{:?}", val) == t => Ok(val),
-                    (val, t) => Err(PawError::Type {
-                        file: self.file.clone(),
-                        code: "E4001".into(),
-                        message: format!("Cannot cast {:?} to {}", val, t),
-                        line: expr.line,
-                        column: expr.col,
-                        snippet: None,
-                        hint: None,
-                    }),
+                            hint: Some("Did you declare this variable before use?".into()),
+                        })
                 }
-            }
 
-            ExprKind::Var(name) => self
-                .env
-                .get(name)
-                .ok_or_else(|| PawError::UndefinedVariable {
-                    file: self.file.clone(),
-                    code: "E2003".into(),
-                    name: name.clone(),
-                    line: expr.line,
-                    column: expr.col,
-                    snippet: None,
-                    hint: Some("Check variable name or scope.".into()),
-                }),
-
-            ExprKind::UnaryOp { op, expr: inner } => {
-                let v = self.eval_expr(inner)?;
-                match (op.as_str(), v.clone()) {
-                    ("-", Value::Int(i)) => Ok(Value::Int(-i)),
-                    ("-", Value::Long(l)) => Ok(Value::Long(-l)),
-                    ("-", Value::Float(f)) => Ok(Value::Float(-f)),
-                    ("!", v) => Ok(Value::Bool(!v.to_bool(inner, &*self.file)?)),
-                    _ => Err(PawError::Type {
-                        file: self.file.clone(),
-                        code: "E4001".into(),
-                        message: format!("Bad unary `{}` on {:?}", op, v),
-                        line: expr.line,
-                        column: expr.col,
-                        snippet: None,
-                        hint: None,
-                    }),
-                }
-            }
-
-            ExprKind::BinaryOp { op, left, right } => {
-                let l = self.eval_expr(left)?;
-                let r = self.eval_expr(right)?;
-                let val = match op {
-                    BinaryOp::Add => {
-                        if let Value::String(a) = l.clone() {
-                            return Ok(Value::String(a + &r.to_string_value()));
-                        }
-                        if let Value::String(b) = r.clone() {
-                            return Ok(Value::String(l.to_string_value() + &b));
-                        }
-                        match (l, r) {
-                            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
-                            (Value::Long(a), Value::Long(b)) => Ok(Value::Long(a + b)),
-                            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
-                            _ => Err(PawError::Type {
+                ExprKind::UnaryOp { op, expr: inner } => {
+                    let v = self.eval_expr(inner).await?;
+                    match op.as_str() {
+                        "-" => match v {
+                            Value::Int(i) => Ok(Value::Int(-i)),
+                            Value::Long(l) => Ok(Value::Long(-l)),
+                            Value::Float(f) => Ok(Value::Float(-f)),
+                            other => Err(PawError::Runtime {
                                 file: self.file.clone(),
-                                code: "E4001".into(),
-                                message: "Bad + operands".into(),
+                                code: "E3013",
+                                message: format!("Bad unary `{}` on {:?}", op, other),
                                 line: expr.line,
                                 column: expr.col,
                                 snippet: None,
                                 hint: None,
                             }),
-                        }
-                    }
-                    BinaryOp::Sub => Ok(match (l, r) {
-                        (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
-                        (Value::Long(a), Value::Long(b)) => Value::Long(a - b),
-                        (Value::Float(a), Value::Float(b)) => Value::Float(a - b),
-                        _ => {
-                            return Err(PawError::Type {
+                        },
+                        "!" => match v {
+                            Value::Bool(b) => Ok(Value::Bool(!b)),
+                            other => Err(PawError::Runtime {
                                 file: self.file.clone(),
-                                code: "E4001".into(),
-                                message: "Bad - operands".into(),
+                                code: "E3013",
+                                message: format!("Bad unary `{}` on {:?}", op, other),
                                 line: expr.line,
                                 column: expr.col,
                                 snippet: None,
                                 hint: None,
-                            })
-                        }
-                    }),
-                    BinaryOp::Mul => Ok(match (l, r) {
-                        (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
-                        (Value::Long(a), Value::Long(b)) => Value::Long(a * b),
-                        (Value::Float(a), Value::Float(b)) => Value::Float(a * b),
-                        _ => {
-                            return Err(PawError::Type {
-                                file: self.file.clone(),
-                                code: "E4001".into(),
-                                message: "Bad * operands".into(),
-                                line: expr.line,
-                                column: expr.col,
-                                snippet: None,
-                                hint: None,
-                            })
-                        }
-                    }),
-                    BinaryOp::Div => Ok(match (l, r) {
-                        (Value::Int(a), Value::Int(b)) => Value::Int(a / b),
-                        (Value::Long(a), Value::Long(b)) => Value::Long(a / b),
-                        (Value::Float(a), Value::Float(b)) => Value::Float(a / b),
-                        _ => {
-                            return Err(PawError::Type {
-                                file: self.file.clone(),
-                                code: "E4001".into(),
-                                message: "Bad / operands".into(),
-                                line: expr.line,
-                                column: expr.col,
-                                snippet: None,
-                                hint: None,
-                            })
-                        }
-                    }),
-                    BinaryOp::Mod => Ok(match (l, r) {
-                        (Value::Int(a), Value::Int(b)) => Value::Int(a % b),
-                        (Value::Long(a), Value::Long(b)) => Value::Long(a % b),
-                        (Value::Float(a), Value::Float(b)) => Value::Float(a % b),
-                        _ => {
-                            return Err(PawError::Type {
-                                file: self.file.clone(),
-                                code: "E4001".into(),
-                                message: "Bad % operands".into(),
-                                line: expr.line,
-                                column: expr.col,
-                                snippet: None,
-                                hint: None,
-                            })
-                        }
-                    }),
-                    BinaryOp::EqEq => Ok(Value::Bool(l == r)),
-                    BinaryOp::NotEq => Ok(Value::Bool(l != r)),
-                    BinaryOp::Lt => Ok(Value::Bool(l < r)),
-                    BinaryOp::Le => Ok(Value::Bool(l <= r)),
-                    BinaryOp::Gt => Ok(Value::Bool(l > r)),
-                    BinaryOp::Ge => Ok(Value::Bool(l >= r)),
-                    BinaryOp::And => Ok(Value::Bool(l.to_bool(expr, &*self.file)? && r.to_bool(expr, &*self.file)?)),
-                    BinaryOp::Or => Ok(Value::Bool(l.to_bool(expr, &*self.file)? || r.to_bool(expr, &*self.file)?)),
-                    BinaryOp::As => {
-                        return Err(PawError::Internal {
+                            }),
+                        },
+                        _ => Err(PawError::Internal {
                             file: self.file.clone(),
-                            code: "E5004".into(),
-                            message: format!("Unhandled binary operator in interpreter: {:?}", op),
-                            line: expr.line,
-                            column: expr.col,
-                            snippet: None,
-                            hint: Some("This should have been lowered to a cast.".into()),
-                        });
-                    }
-                };
-                Ok(val?)
-            }
-
-            ExprKind::Call { name, args } => {
-                let f = if let Some(f) = self.env.get(name) {
-                    f
-                } else if let Some((mod_name, member)) = name.split_once('.') {
-                    match self.env.get(mod_name) {
-                        Some(Value::Module(table)) => {
-                            table.get(member).cloned().ok_or_else(|| {
-                                PawError::UndefinedVariable {
-                                    file: self.file.clone(),
-                                    code: "E2003".into(),
-                                    name: name.clone(),
-                                    line: expr.line,
-                                    column: expr.col,
-                                    snippet: None,
-                                    hint: Some("Check spelling or scope.".into()),
-                                }
-                            })?
-                        }
-                        _ => {
-                            return Err(PawError::UndefinedVariable {
-                                file: self.file.clone(),
-                                code: "E2003".into(),
-                                name: name.clone(),
-                                line: expr.line,
-                                column: expr.col,
-                                snippet: None,
-                                hint: Some("Check spelling or scope.".into()),
-                            })
-                        }
-                    }
-                } else {
-                    return Err(PawError::UndefinedVariable {
-                        file: self.file.clone(),
-                        code: "E2003".into(),
-                        name: name.clone(),
-                        line: expr.line,
-                        column: expr.col,
-                        snippet: None,
-                        hint: Some("Check spelling or scope.".into()),
-                    });
-                };
-                if let Value::Function {
-                    params,
-                    body,
-                    env: fn_env,
-                } = f
-                {
-                    if args.len() != params.len() {
-                        return Err(PawError::Type {
-                            file: self.file.clone(),
-                            code: "E4001".into(),
-                            message: "Arg count mismatch".into(),
+                            code: "E6002",
+                            message: format!("Unknown unary operator `{}`", op),
                             line: expr.line,
                             column: expr.col,
                             snippet: None,
                             hint: None,
-                        });
+                        }),
                     }
-                    let mut sub = Interpreter {
-                        env: fn_env.clone(),
-                        file: self.file.clone(),
-                    };
-                    sub.env.push();
-                    for (p, arg) in params.iter().zip(args.iter()) {
-                        let v = self.eval_expr(arg)?;
-                        sub.env.define(p.clone(), v);
-                    }
-                    let res = sub.exec_block(&body)?;
-                    if let ExecResult::Return(v) = res {
-                        Ok(v)
-                    } else if let Some(last_stmt) = body.last() {
-                        if let StatementKind::Expr(expr) = &last_stmt.kind {
-                            sub.eval_expr(expr)
-                        } else {
-                            Ok(Value::Void)
-                        }
-                    } else {
-                        Ok(Value::Void)
-                    }
-                } else {
-                    Err(PawError::Type {
-                        file: self.file.clone(),
-                        code: "E4001".into(),
-                        message: format!("{} is not a function", name),
-                        line: expr.line,
-                        column: expr.col,
-                        snippet: None,
-                        hint: None,
-                    })
                 }
-            }
 
-            ExprKind::ArrayLiteral(elems) => {
-                let mut vec = Vec::new();
-                for e in elems {
-                    vec.push(self.eval_expr(e)?);
-                }
-                Ok(Value::Array(vec))
-            }
+                ExprKind::BinaryOp { op, left, right } => {
+                    // 先 await 两边
+                    let l = self.eval_expr(left).await?;
+                    let r = self.eval_expr(right).await?;
+                    use crate::ast::expr::BinaryOp::*;
+                    use Value::*;
 
-            ExprKind::Index { array, index } => {
-                let arr = self.eval_expr(array)?;
-                let idx = self.eval_expr(index)?;
-                let i = match idx {
-                    Value::Int(i) => i as usize,
-                    _ => {
-                        return Err(PawError::Type {
-                            file: self.file.clone(),
-                            code: "E4001".into(),
-                            message: "Index not Int".into(),
-                            line: expr.line,
-                            column: expr.col,
-                            snippet: None,
-                            hint: Some("Use an Int index.".into()),
-                        })
-                    }
-                };
-                if let Value::Array(v) = arr {
-                    v.get(i).cloned().ok_or_else(|| PawError::Internal {
-                        file: self.file.clone(),
-                        code: "E5005".into(),
-                        message: "Index out of bounds".into(),
-                        line: expr.line,
-                        column: expr.col,
-                        snippet: None,
-                        hint: None,
-                    })
-                } else {
-                    Err(PawError::Type {
-                        file: self.file.clone(),
-                        code: "E4001".into(),
-                        message: "Not an array".into(),
-                        line: expr.line,
-                        column: expr.col,
-                        snippet: None,
-                        hint: None,
-                    })
-                }
-            }
+                    let result = match (op, l, r) {
+                        // —— 字符串拼接 ——
+                        (Add, String(a), String(b)) => String(a + &b),
+                        (Add, String(a), other) => String(a + &format!("{:?}", other)),
+                        (Add, other, String(b)) => String(format!("{:?}", other) + &b),
 
-            ExprKind::Property { object, name } => {
-                let obj_val = self.eval_expr(object)?;
-                match obj_val {
-                    Value::Array(v) if name == "length" => Ok(Value::Int(v.len() as i32)),
-                    Value::String(v) if name == "length" => Ok(Value::Int(v.len() as i32)),
-                    Value::Module(table) => {
-                        table
-                            .get(name)
-                            .cloned()
-                            .ok_or_else(|| PawError::UndefinedVariable {
+                        // —— 同类型基本情形 ——
+                        (Add, Int(a), Int(b)) => Int(a + b),
+                        (Add, Long(a), Long(b)) => Long(a + b),
+                        (Add, Float(a), Float(b)) => Float(a + b),
+                        (Add, Double(a), Double(b)) => Double(a + b),
+
+                        (Sub, Int(a), Int(b)) => Int(a - b),
+                        (Sub, Long(a), Long(b)) => Long(a - b),
+                        (Sub, Float(a), Float(b)) => Float(a - b),
+                        (Sub, Double(a), Double(b)) => Double(a - b),
+
+                        (Mul, Int(a), Int(b)) => Int(a * b),
+                        (Mul, Long(a), Long(b)) => Long(a * b),
+                        (Mul, Float(a), Float(b)) => Float(a * b),
+                        (Mul, Double(a), Double(b)) => Double(a * b),
+
+                        (Div, Int(a), Int(b)) => Int(a / b),
+                        (Div, Long(a), Long(b)) => Long(a / b),
+                        (Div, Float(a), Float(b)) => Float(a / b),
+                        (Div, Double(a), Double(b)) => Double(a / b),
+
+                        (Mod, Int(a), Int(b)) => Int(a % b),
+                        (Mod, Long(a), Long(b)) => Long(a % b),
+
+                        // —— 混合 Int ↔ Float/Double ——
+                        (Add, Int(a), Float(b)) => Float(a as f32 + b),
+                        (Add, Float(a), Int(b)) => Float(a + b as f32),
+                        (Add, Int(a), Double(b)) => Double(a as f64 + b),
+                        (Add, Double(a), Int(b)) => Double(a + b as f64),
+                        (Add, Long(a), Float(b)) => Float(a as f32 + b),
+                        (Add, Float(a), Long(b)) => Float(a + b as f32),
+                        (Add, Long(a), Double(b)) => Double(a as f64 + b),
+                        (Add, Double(a), Long(b)) => Double(a + b as f64),
+
+                        (Sub, Int(a), Float(b)) => Float(a as f32 - b),
+                        (Sub, Float(a), Int(b)) => Float(a - b as f32),
+                        (Sub, Int(a), Double(b)) => Double(a as f64 - b),
+                        (Sub, Double(a), Int(b)) => Double(a - b as f64),
+                        (Sub, Long(a), Float(b)) => Float(a as f32 - b),
+                        (Sub, Float(a), Long(b)) => Float(a - b as f32),
+                        (Sub, Long(a), Double(b)) => Double(a as f64 - b),
+                        (Sub, Double(a), Long(b)) => Double(a - b as f64),
+
+                        (Mul, Int(a), Float(b)) => Float(a as f32 * b),
+                        (Mul, Float(a), Int(b)) => Float(a * b as f32),
+                        (Mul, Int(a), Double(b)) => Double(a as f64 * b),
+                        (Mul, Double(a), Int(b)) => Double(a * b as f64),
+                        (Mul, Long(a), Float(b)) => Float(a as f32 * b),
+                        (Mul, Float(a), Long(b)) => Float(a * b as f32),
+                        (Mul, Long(a), Double(b)) => Double(a as f64 * b),
+                        (Mul, Double(a), Long(b)) => Double(a * b as f64),
+
+                        (Div, Int(a), Float(b)) => Float(a as f32 / b),
+                        (Div, Float(a), Int(b)) => Float(a / b as f32),
+                        (Div, Int(a), Double(b)) => Double(a as f64 / b),
+                        (Div, Double(a), Int(b)) => Double(a / b as f64),
+                        (Div, Long(a), Float(b)) => Float(a as f32 / b),
+                        (Div, Float(a), Long(b)) => Float(a / b as f32),
+                        (Div, Long(a), Double(b)) => Double(a as f64 / b),
+                        (Div, Double(a), Long(b)) => Double(a / b as f64),
+
+                        // —— 其它运算不变 ——
+                        (EqEq, a, b) => Bool(a == b),
+                        (NotEq, a, b) => Bool(a != b),
+
+                        (Lt, Int(a), Int(b)) => Bool(a < b),
+                        (Lt, Long(a), Long(b)) => Bool(a < b),
+                        (Lt, Float(a), Float(b)) => Bool(a < b),
+                        (Lt, Double(a), Double(b)) => Bool(a < b),
+
+                        (Le, Int(a), Int(b)) => Bool(a <= b),
+                        (Le, Long(a), Long(b)) => Bool(a <= b),
+                        (Le, Float(a), Float(b)) => Bool(a <= b),
+                        (Le, Double(a), Double(b)) => Bool(a <= b),
+
+                        (Gt, Int(a), Int(b)) => Bool(a > b),
+                        (Gt, Long(a), Long(b)) => Bool(a > b),
+                        (Gt, Float(a), Float(b)) => Bool(a > b),
+                        (Gt, Double(a), Double(b)) => Bool(a > b),
+
+                        (Ge, Int(a), Int(b)) => Bool(a >= b),
+                        (Ge, Long(a), Long(b)) => Bool(a >= b),
+                        (Ge, Float(a), Float(b)) => Bool(a >= b),
+                        (Ge, Double(a), Double(b)) => Bool(a >= b),
+
+                        (And, Bool(a), Bool(b)) => Bool(a && b),
+                        (Or, Bool(a), Bool(b)) => Bool(a || b),
+
+                        (As, _, right_val) => right_val, // 强制转换
+
+                        // 不支持的组合
+                        (_op, left_val, right_val) => {
+                            return Err(PawError::Runtime {
                                 file: self.file.clone(),
-                                code: "E2003".into(),
-                                name: format!("{}.{}", "<module>", name),
+                                code: "E3014",
+                                message: format!("Cannot {:?} and {:?}", left_val, right_val),
                                 line: expr.line,
                                 column: expr.col,
                                 snippet: None,
-                                hint: Some("Check module member name.".into()),
+                                hint: None,
                             })
+                        }
+                    };
+
+                    Ok(result)
+                }
+
+                ExprKind::Call { name, args } => {
+                    // Evaluate arguments sequentially
+                    let mut arg_vals = Vec::with_capacity(args.len());
+                    for e in args {
+                        arg_vals.push(self.eval_expr(e).await?);
                     }
-                    _ => Err(PawError::Type {
-                        file: self.file.clone(),
-                        code: "E4001".into(),
-                        message: format!("Type {:?} has no property `{}`", obj_val, name),
-                        line: expr.line,
-                        column: expr.col,
-                        snippet: None,
-                        hint: None,
-                    }),
+                    // Look up function
+                    let func = self
+                        .env
+                        .get(name)
+                        .ok_or_else(|| PawError::UndefinedVariable {
+                            file: self.file.clone(),
+                            code: "E4001",
+                            name: name.clone(),
+                            line: expr.line,
+                            column: expr.col,
+                            snippet: None,
+                            hint: Some("Did you declare this function before use?".into()),
+                        })?;
+
+                    if let Value::Function {
+                        params,
+                        body,
+                        env: fenv,
+                        is_async,
+                        name: _fname,
+                    } = func
+                    {
+                        if is_async {
+                            // build a future
+                            let mut new_interp =
+                                Interpreter::new(Env::with_parent(&fenv), &self.file);
+                            // bind args
+                            for (p, v) in params.iter().zip(arg_vals.into_iter()) {
+                                new_interp.env.define(p.name.clone(), v);
+                            }
+                            // run body
+                            if let Some(ret) = new_interp.eval_statements(&body).await? {
+                                Ok(ret)
+                            } else {
+                                Ok(Value::Null)
+                            }
+                        } else {
+                            // synchronous
+                            let prev = self.env.clone();
+                            let mut child = Interpreter::new(Env::with_parent(&fenv), &self.file);
+                            for (p, v) in params.iter().zip(arg_vals.into_iter()) {
+                                child.env.define(p.name.clone(), v);
+                            }
+                            let res = child.eval_statements(&body).await?;
+                            self.env = prev;
+                            Ok(res.unwrap_or(Value::Null))
+                        }
+                    } else {
+                        Err(PawError::Runtime {
+                            file: self.file.clone(),
+                            code: "E4002",
+                            message: format!("{} is not callable", name),
+                            line: expr.line,
+                            column: expr.col,
+                            snippet: None,
+                            hint: None,
+                        })
+                    }
+                }
+
+                ExprKind::Cast { expr: inner, ty: _ty } => {
+                    let v = self.eval_expr(inner).await?;
+                    Ok(v)
+                }
+
+                ExprKind::ArrayLiteral(elems) => {
+                    let mut items = Vec::with_capacity(elems.len());
+                    for e in elems {
+                        items.push(self.eval_expr(e).await?);
+                    }
+                    Ok(Value::Array(items))
+                }
+
+                ExprKind::Index { array, index } => {
+                    let arr = self.eval_expr(array).await?;
+                    let idx = self.eval_expr(index).await?;
+                    match (arr, idx) {
+                        (Value::Array(v), Value::Int(i)) => {
+                            Ok(v.get(i as usize).cloned().unwrap_or(Value::Null))
+                        }
+                        _ => Err(PawError::Runtime {
+                            file: self.file.clone(),
+                            code: "E3012",
+                            message: "Cannot index into non-array or non-int index".into(),
+                            line: expr.line,
+                            column: expr.col,
+                            snippet: None,
+                            hint: None,
+                        }),
+                    }
+                }
+
+                ExprKind::RecordInit { name: _, fields } => {
+                    let mut map = std::collections::HashMap::new();
+                    for (fname, fexpr) in fields {
+                        let v = self.eval_expr(fexpr).await?;
+                        map.insert(fname.clone(), v);
+                    }
+                    Ok(Value::Record(map))
+                }
+
+                ExprKind::Await { expr: inner } => {
+                    // 先 eval 出一个 Value
+                    let val = self.eval_expr(inner).await?;
+                    if let Value::Future(fut_arc) = val {
+                        // 不再 unwrap，而是如果锁被毒化就返回 Internal 错误
+                        let mut guard = fut_arc.lock().map_err(|e| PawError::Internal {
+                            file: self.file.clone(),
+                            code: "E6004",
+                            message: format!("Failed to lock future mutex: {}", e),
+                            line: expr.line,
+                            column: expr.col,
+                            snippet: None,
+                            hint: Some("Future mutex was poisoned".into()),
+                        })?;
+                        // 然后 await 里面的 Future，若 Future 本身返回 Err，也会被 ? 向上传递
+                        let result = guard.as_mut().await?;
+                        Ok(result)
+                    } else {
+                        Ok(val)
+                    }
+                }
+
+                ExprKind::FieldAccess { expr: inner, field } => {
+                    let obj = self.eval_expr(inner).await?;
+                    match obj {
+                        Value::Record(map) => {
+                            if let Some(v) = map.get(field) {
+                                Ok(v.clone())
+                            } else {
+                                Err(PawError::Runtime {
+                                    file: self.file.clone(),
+                                    code: "E3015",
+                                    message: format!("Record has no field '{}'", field),
+                                    line: expr.line,
+                                    column: expr.col,
+                                    snippet: None,
+                                    hint: None,
+                                })
+                            }
+                        }
+                        other => Err(PawError::Runtime {
+                            file: self.file.clone(),
+                            code: "E6003",
+                            message: format!("Cannot access field '{}' on {:?}", field, other),
+                            line: expr.line,
+                            column: expr.col,
+                            snippet: None,
+                            hint: Some(format!("Type {:?} has no fields", other)),
+                        }),
+                    }
+                }
+
+                ExprKind::MethodCall {
+                    receiver,
+                    method,
+                    args,
+                } => {
+                    // 1. Evaluate the receiver expression
+                    let recv = self.eval_expr(receiver).await?;
+                    // 2. Evaluate all argument expressions
+                    let mut arg_vals = Vec::with_capacity(args.len());
+                    for a in args {
+                        arg_vals.push(self.eval_expr(a).await?);
+                    }
+                    // 3. Dispatch based on the receiver’s runtime type
+                    match recv {
+                        // ————— String methods —————
+                        Value::String(s) => match method.as_str() {
+                            "trim" if arg_vals.is_empty() => {
+                                Ok(Value::String(s.trim().to_string()))
+                            }
+                            "to_uppercase" if arg_vals.is_empty() => {
+                                Ok(Value::String(s.to_uppercase()))
+                            }
+                            "to_lowercase" if arg_vals.is_empty() => {
+                                Ok(Value::String(s.to_lowercase()))
+                            }
+                            "length" if arg_vals.is_empty() => {
+                                Ok(Value::Int(s.chars().count() as i32))
+                            }
+                            "starts_with" => {
+                                if let [Value::String(ref p)] = &arg_vals[..] {
+                                    Ok(Value::Bool(s.starts_with(p)))
+                                } else {
+                                    Err(PawError::Runtime {
+                                        file: self.file.clone(),
+                                        code: "E6003".into(),
+                                        message: format!(
+                                            "Method `starts_with` expects one string argument, got {:?}",
+                                            arg_vals
+                                        ),
+                                        line: expr.line,
+                                        column: expr.col,
+                                        snippet: None,
+                                        hint: Some("Use: someString.starts_with(otherString)".into()),
+                                    })
+                                }
+                            }
+                            "ends_with" => {
+                                if let [Value::String(ref p)] = &arg_vals[..] {
+                                    Ok(Value::Bool(s.ends_with(p)))
+                                } else {
+                                    Err(PawError::Runtime {
+                                        file: self.file.clone(),
+                                        code: "E6003".into(),
+                                        message: format!(
+                                            "Method `ends_with` expects one string argument, got {:?}",
+                                            arg_vals
+                                        ),
+                                        line: expr.line,
+                                        column: expr.col,
+                                        snippet: None,
+                                        hint: Some("Use: someString.ends_with(otherString)".into()),
+                                    })
+                                }
+                            }
+                            "contains" => {
+                                if let [Value::String(ref p)] = &arg_vals[..] {
+                                    Ok(Value::Bool(s.contains(p)))
+                                } else {
+                                    Err(PawError::Runtime {
+                                        file: self.file.clone(),
+                                        code: "E6003".into(),
+                                        message: format!(
+                                            "Method `contains` expects one string argument, got {:?}",
+                                            arg_vals
+                                        ),
+                                        line: expr.line,
+                                        column: expr.col,
+                                        snippet: None,
+                                        hint: Some("Use: someString.contains(otherString)".into()),
+                                    })
+                                }
+                            }
+                            _ => Err(PawError::Runtime {
+                                file: self.file.clone(),
+                                code: "E6003".into(),
+                                message: format!("Cannot call method '{}' on String", method),
+                                line: expr.line,
+                                column: expr.col,
+                                snippet: None,
+                                hint: Some(format!("Type String has no method '{}'", method)),
+                            }),
+                        },
+
+                        // ————— Array methods —————
+                        Value::Array(mut v) => match method.as_str() {
+                            "push" if matches!(&arg_vals[..], [_x]) => {
+                                v.push(arg_vals[0].clone());
+                                Ok(Value::Array(v))
+                            }
+                            "pop" if arg_vals.is_empty() => {
+                                if let Some(x) = v.pop() {
+                                    Ok(x) // 直接把元素作为 Value::<T> 返回
+                                } else {
+                                    // 数组空时抛出运行时错误
+                                    Err(PawError::Runtime {
+                                        file: self.file.clone(),
+                                        code: "E3016".into(), // 你可以定义一个新的错误码
+                                        message: "Cannot pop from empty array".into(),
+                                        line: expr.line,
+                                        column: expr.col,
+                                        snippet: None,
+                                        hint: Some(
+                                            "Ensure array is non-empty before calling pop".into(),
+                                        ),
+                                    })
+                                }
+                            }
+                            "length" if arg_vals.is_empty() => Ok(Value::Int(v.len() as i32)),
+                            _ => Err(PawError::Runtime {
+                                file: self.file.clone(),
+                                code: "E6003".into(),
+                                message: format!("Cannot call method '{}' on Array", method),
+                                line: expr.line,
+                                column: expr.col,
+                                snippet: None,
+                                hint: Some("Type Array has no such method or wrong args".into()),
+                            }),
+                        },
+
+                        // ————— Module: property lookup or immediate call —————
+                        Value::Module(ref mmap) => {
+                            if let Some(member) = mmap.get(method) {
+                                match member.clone() {
+                                    Value::Function {
+                                        params,
+                                        body,
+                                        env: fenv,
+                                        is_async,
+                                        name: _,
+                                    } => {
+                                        // Async function call
+                                        if is_async {
+                                            let mut new_i = Interpreter::new(
+                                                Env::with_parent(&fenv),
+                                                &self.file,
+                                            );
+                                            for (p, v) in params.iter().zip(arg_vals.into_iter()) {
+                                                new_i.env.define(p.name.clone(), v);
+                                            }
+                                            if let Some(ret) = new_i.eval_statements(&body).await? {
+                                                Ok(ret)
+                                            } else {
+                                                Ok(Value::Null)
+                                            }
+                                        }
+                                        // Sync function call
+                                        else {
+                                            let saved = self.env.clone();
+                                            let mut child = Interpreter::new(
+                                                Env::with_parent(&fenv),
+                                                &self.file,
+                                            );
+                                            for (p, v) in params.iter().zip(arg_vals.into_iter()) {
+                                                child.env.define(p.name.clone(), v);
+                                            }
+                                            let res = child.eval_statements(&body).await?;
+                                            self.env = saved;
+                                            Ok(res.unwrap_or(Value::Null))
+                                        }
+                                    }
+                                    // Non‐function: only zero‐arg property access
+                                    _ if arg_vals.is_empty() => Ok(member.clone()),
+                                    _ => Err(PawError::Runtime {
+                                        file: self.file.clone(),
+                                        code: "E6003".into(),
+                                        message: format!(
+                                            "Cannot call method '{}' on Module",
+                                            method
+                                        ),
+                                        line: expr.line,
+                                        column: expr.col,
+                                        snippet: None,
+                                        hint: Some(format!(
+                                            "Type Module has no method '{}'",
+                                            method
+                                        )),
+                                    }),
+                                }
+                            } else {
+                                Err(PawError::Runtime {
+                                    file: self.file.clone(),
+                                    code: "E6005".into(),
+                                    message: format!("Module has no member '{}'", method),
+                                    line: expr.line,
+                                    column: expr.col,
+                                    snippet: None,
+                                    hint: None,
+                                })
+                            }
+                        }
+
+                        // ————— Fallback for everything else —————
+                        other => Err(PawError::Runtime {
+                            file: self.file.clone(),
+                            code: "E6003".into(),
+                            message: format!("Cannot call method '{}' on {:?}", method, other),
+                            line: expr.line,
+                            column: expr.col,
+                            snippet: None,
+                            hint: Some(format!("Type {:?} has no method '{}'", other, method)),
+                        }),
+                    }
                 }
             }
-        }
+        })
     }
 }

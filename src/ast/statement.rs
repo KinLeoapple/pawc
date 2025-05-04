@@ -1,75 +1,37 @@
 // src/ast/statement.rs
 
-use crate::ast::{Expr, Param};
+use crate::ast::expr::Expr;
+use crate::ast::param::Param;
 
 /// 语句种类
 #[derive(Debug, Clone, PartialEq)]
 pub enum StatementKind {
-    Let {
-        name: String,
-        ty: String,
-        value: Expr,
-    },
+    Let { name: String, ty: String, value: Expr },
     Say(Expr),
-    Assign {
-        name: String,
-        value: Expr,
-    },
-    Ask {
-        name: String,
-        ty: String,
-        prompt: String,
-    },
+    Assign { name: String, value: Expr },
+    Ask { name: String, ty: String, prompt: String },
     AskPrompt(String),
     Return(Option<Expr>),
     Break,
     Continue,
     Expr(Expr),
 
-    If {
-        condition: Expr,
-        body: Vec<Statement>,
-        else_branch: Option<Box<Statement>>,
-    },
-
+    If { condition: Expr, body: Vec<Statement>, else_branch: Option<Box<Statement>> },
     LoopForever(Vec<Statement>),
+    LoopWhile { condition: Expr, body: Vec<Statement> },
+    LoopRange { var: String, start: Expr, end: Expr, body: Vec<Statement> },
 
-    LoopWhile {
-        condition: Expr,
-        body: Vec<Statement>,
-    },
-
-    LoopRange {
-        var: String,
-        start: Expr,
-        end: Expr,
-        body: Vec<Statement>,
-    },
-
-    FunDecl {
-        name: String,
-        params: Vec<Param>,
-        return_type: Option<String>,
-        body: Vec<Statement>,
-    },
-
+    FunDecl { name: String, params: Vec<Param>, is_async: bool, return_type: Option<String>, body: Vec<Statement> },
     Block(Vec<Statement>),
 
     Throw(Expr),
-    TryCatchFinally {
-        body: Vec<Statement>,
-        err_name: String,
-        handler: Vec<Statement>,
-        finally: Vec<Statement>,
-    },
+    TryCatchFinally { body: Vec<Statement>, err_name: String, handler: Vec<Statement>, finally: Vec<Statement> },
 
-    Import {
-        module: Vec<String>,
-        alias: String,
-    },
+    Import { module: Vec<String>, alias: String },
+    RecordDecl { name: String, fields: Vec<Param> },
 }
 
-/// 语句
+/// 带位置的语句
 #[derive(Debug, Clone, PartialEq)]
 pub struct Statement {
     pub kind: StatementKind,

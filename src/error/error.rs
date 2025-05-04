@@ -50,8 +50,21 @@ pub enum PawError {
         hint: Option<String>,
     },
 
-    /// Code generation/runtime error
-    Codegen {
+    /// Runtime error (formerly Codegen)
+    Runtime {
+        file: String,
+        code: &'static str,
+        message: String,
+        line: usize,
+        column: usize,
+        snippet: Option<String>,
+        hint: Option<String>,
+    },
+
+    /// Custom user-defined error
+    Custom {
+        /// user-given error name
+        name: String,
         file: String,
         code: &'static str,
         message: String,
@@ -76,15 +89,7 @@ pub enum PawError {
 impl fmt::Display for PawError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PawError::Syntax {
-                file,
-                code,
-                message,
-                line,
-                column,
-                snippet,
-                hint,
-            } => {
+            PawError::Syntax { file, code, message, line, column, snippet, hint } => {
                 let file_hint = format!("{}:{}:{}", file, line, column);
                 writeln!(f, "🐾 [{}] Syntax Error in {} 🐾", code, file_hint.yellow().underline())?;
                 writeln!(f, "   💬 {}", message)?;
@@ -97,22 +102,9 @@ impl fmt::Display for PawError {
                 Ok(())
             }
 
-            PawError::Type {
-                file,
-                code,
-                message,
-                line,
-                column,
-                snippet,
-                hint,
-            } => {
+            PawError::Type { file, code, message, line, column, snippet, hint } => {
                 let file_hint = format!("{}:{}:{}", file, line, column);
-                writeln!(
-                    f,
-                    "🐾 [{}] Type Error in {} 🐾",
-                    code,
-                    file_hint.yellow().underline()
-                )?;
+                writeln!(f, "🐾 [{}] Type Error in {} 🐾", code, file_hint.yellow().underline())?;
                 writeln!(f, "   💬 {}", message)?;
                 if let Some(src) = snippet {
                     writeln!(f, "   📜 {}", src)?;
@@ -123,23 +115,9 @@ impl fmt::Display for PawError {
                 Ok(())
             }
 
-            PawError::UndefinedVariable {
-                file,
-                code,
-                name,
-                line,
-                column,
-                snippet,
-                hint,
-            } => {
+            PawError::UndefinedVariable { file, code, name, line, column, snippet, hint } => {
                 let file_hint = format!("{}:{}:{}", file, line, column);
-                writeln!(
-                    f,
-                    "🐾 [{}] Oops! Undefined variable '{}' in {} 🐾",
-                    code,
-                    name,
-                    file_hint.yellow()
-                )?;
+                writeln!(f, "🐾 [{}] Oops! Undefined variable '{}' in {} 🐾", code, name, file_hint.yellow())?;
                 if let Some(src) = snippet {
                     writeln!(f, "   📜 {}", src)?;
                 }
@@ -149,23 +127,9 @@ impl fmt::Display for PawError {
                 Ok(())
             }
 
-            PawError::DuplicateDefinition {
-                file,
-                code,
-                name,
-                line,
-                column,
-                snippet,
-                hint,
-            } => {
+            PawError::DuplicateDefinition { file, code, name, line, column, snippet, hint } => {
                 let file_hint = format!("{}:{}:{}", file, line, column);
-                writeln!(
-                    f,
-                    "🐾 [{}] Duplicate definition '{}' in {} 🐾",
-                    code,
-                    name,
-                    file_hint.yellow().underline()
-                )?;
+                writeln!(f, "🐾 [{}] Duplicate definition '{}' in {} 🐾", code, name, file_hint.yellow().underline())?;
                 if let Some(src) = snippet {
                     writeln!(f, "   📜 {}", src)?;
                 }
@@ -175,22 +139,9 @@ impl fmt::Display for PawError {
                 Ok(())
             }
 
-            PawError::Codegen {
-                file,
-                code,
-                message,
-                line,
-                column,
-                snippet,
-                hint,
-            } => {
-                writeln!(
-                    f,
-                    "🐾 [{}] Codegen Error in {} at {} 🐾",
-                    code,
-                    file.yellow().underline(),
-                    format!("{}:{}", line, column).yellow().underline()
-                )?;
+            PawError::Runtime { file, code, message, line, column, snippet, hint } => {
+                let file_hint = format!("{}:{}:{}", file, line, column);
+                writeln!(f, "🐾 [{}] Runtime Error in {} 🐾", code, file_hint.yellow().underline())?;
                 writeln!(f, "   💥 {}", message)?;
                 if let Some(src) = snippet {
                     writeln!(f, "   📜 {}", src)?;
@@ -201,22 +152,22 @@ impl fmt::Display for PawError {
                 Ok(())
             }
 
-            PawError::Internal {
-                file,
-                code,
-                message,
-                line,
-                column,
-                snippet: _snippet,
-                hint,
-            } => {
+            PawError::Custom { name, file, code, message, line, column, snippet, hint } => {
                 let file_hint = format!("{}:{}:{}", file, line, column);
-                writeln!(
-                    f,
-                    "🐾 [{}] Internal Error in {} 🐾",
-                    code,
-                    file_hint.yellow().underline()
-                )?;
+                writeln!(f, "🐾 [{}] {} Error in {} 🐾", code, name, file_hint.yellow().underline())?;
+                writeln!(f, "   💬 {}", message)?;
+                if let Some(src) = snippet {
+                    writeln!(f, "   📜 {}", src)?;
+                }
+                if let Some(h) = hint {
+                    writeln!(f, "   💡 Hint: {}", h)?;
+                }
+                Ok(())
+            }
+
+            PawError::Internal { file, code, message, line, column, snippet: _, hint } => {
+                let file_hint = format!("{}:{}:{}", file, line, column);
+                writeln!(f, "🐾 [{}] Internal Error in {} 🐾", code, file_hint.yellow().underline())?;
                 writeln!(f, "   💥 {}", message)?;
                 if let Some(h) = hint {
                     writeln!(f, "   💡 Hint: {}", h)?;

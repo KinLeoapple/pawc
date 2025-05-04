@@ -2,73 +2,7 @@
 
 use crate::error::error::PawError;
 use std::collections::HashMap;
-
-/// 支持的类型
-#[derive(Clone, Debug, PartialEq)]
-pub enum PawType {
-    Int,
-    Long,
-    Float,
-    Double,
-    Bool,
-    Char,
-    String,
-    Void,
-    Optional(Box<PawType>),
-    Any,
-    Unknown,
-    Module,
-    Array(Box<PawType>),
-}
-
-impl PawType {
-    /// 从脚本里的类型名字符串解析出 PawType
-    pub fn from_str(s: &str) -> Self {
-        if let Some(inner) = s.strip_suffix('?') {
-            let inner_ty = PawType::from_str(inner);
-            return PawType::Optional(Box::new(inner_ty));
-        }
-
-        if let Some(inner) = s.strip_prefix("Array<").and_then(|t| t.strip_suffix('>')) {
-            PawType::Array(Box::new(PawType::from_str(inner)))
-        } else {
-            match s {
-                "Int" => PawType::Int,
-                "Long" => PawType::Long,
-                "Float" => PawType::Float,
-                "Double" => PawType::Double,
-                "Bool" => PawType::Bool,
-                "Char" => PawType::Char,
-                "String" => PawType::String,
-                "Void" => PawType::Void,
-                "Module" => PawType::Module,
-                "Any" => PawType::Any,
-                _ => PawType::Unknown,
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for PawType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use PawType::*;
-        match self {
-            Int => write!(f, "Int"),
-            Long => write!(f, "Long"),
-            Float => write!(f, "Float"),
-            Double => write!(f, "Double"),
-            Bool => write!(f, "Bool"),
-            Char => write!(f, "Char"),
-            String => write!(f, "String"),
-            Void => write!(f, "Void"),
-            Any => write!(f, "Any"),
-            Optional(ty) => write!(f, "{}?", ty),
-            Module => write!(f, "Module"),
-            Unknown => write!(f, "Unknown"),
-            Array(elem) => write!(f, "Array<{}>", elem),
-        }
-    }
-}
+pub(crate) use crate::semantic::types::PawType;
 
 /// 作用域，支持嵌套查找
 #[derive(Clone, Debug)]
@@ -78,6 +12,7 @@ pub struct Scope {
 }
 
 impl Scope {
+    /// 创建一个新的空作用域
     pub fn new() -> Self {
         Scope {
             symbols: HashMap::new(),
@@ -85,6 +20,7 @@ impl Scope {
         }
     }
 
+    /// 以现有作用域作为父作用域创建子作用域
     pub fn with_parent(parent: &Scope) -> Self {
         Scope {
             symbols: HashMap::new(),
@@ -92,21 +28,19 @@ impl Scope {
         }
     }
 
-    /// 定义新变量，已存在则 Err
-    ///
-    /// Now takes `line` and `column` so that errors can carry a source span.
+    /// 在当前作用域中定义一个新符号，若已存在则返回 Err
     pub fn define(
         &mut self,
         name: &str,
         ty: PawType,
         line: usize,
         column: usize,
-        filename: &str
+        filename: &str,
     ) -> Result<(), PawError> {
         if self.symbols.contains_key(name) {
             Err(PawError::DuplicateDefinition {
                 file: filename.to_string(),
-                code: "E2005", // duplicate definition
+                code: "E2005",
                 name: name.to_string(),
                 line,
                 column,
@@ -119,7 +53,12 @@ impl Scope {
         }
     }
 
-    /// 向上查找
+    /// 定义一个模块别名
+    pub fn define_module(&mut self, alias: &str, line: usize, col: usize, file: &str) -> Result<(), PawError> {
+        self.define(alias, PawType::Module, line, col, file)
+    }
+
+    /// 向上查找符号类型，若未找到返回 None
     pub fn lookup(&self, name: &str) -> Option<PawType> {
         if let Some(t) = self.symbols.get(name) {
             Some(t.clone())

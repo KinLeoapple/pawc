@@ -1,6 +1,6 @@
 [package]
 name        = "pawc"
-version     = "0.1.6"
+version     = "0.1.7"
 authors     = ["Kinleoapple"]
 description = "🐾 PawScript interpreter"
 license     = "MIT"
@@ -16,3 +16,5 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 colored = "3.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+futures-util = "0.3"
