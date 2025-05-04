@@ -2,13 +2,14 @@
 
 use crate::error::error::PawError;
 use std::collections::HashMap;
+use std::sync::Arc;
 pub(crate) use crate::semantic::types::PawType;
 
 /// 作用域，支持嵌套查找
 #[derive(Clone, Debug)]
 pub struct Scope {
     symbols: HashMap<String, PawType>,
-    parent: Option<Box<Scope>>,
+    parent: Option<Arc<Scope>>,
 }
 
 impl Scope {
@@ -24,7 +25,7 @@ impl Scope {
     pub fn with_parent(parent: &Scope) -> Self {
         Scope {
             symbols: HashMap::new(),
-            parent: Some(Box::new(parent.clone())),
+            parent: Some(Arc::new(parent.clone())),
         }
     }
 

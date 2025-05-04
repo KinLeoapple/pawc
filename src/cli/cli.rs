@@ -17,7 +17,7 @@ use futures_util::TryFutureExt;
 #[derive(Parser, Debug)]
 #[command(
     name = "pawc",
-    version = "0.1.7",
+    version = "0.1.8",
     author = "Kinleoapple",
     about = "🐾 PawScript interpreter — execute .paw scripts"
 )]
