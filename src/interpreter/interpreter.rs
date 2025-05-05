@@ -322,7 +322,7 @@ impl Interpreter {
                 Err(PawError::Runtime {
                     file: self.file.clone(),
                     code: "E6001",
-                    message: format!("{:?}", v),
+                    message: format!("{}", v),
                     line: stmt.line,
                     column: stmt.col,
                     snippet: None,
