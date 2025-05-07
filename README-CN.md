@@ -199,7 +199,7 @@ say "Received: " + content
 ```paw
 let a: Array<Int> = [1, 2, 3]
 say a[0]        # 索引访问
-say a.length    # 长度属性
+say a.length()    # 长度属性
 ```
 
 ---

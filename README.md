@@ -193,7 +193,7 @@ say "Received: " + content
 ```paw
 let a: Array<Int> = [1, 2, 3]
 say a[0]        # index access
-say a.length    # length property
+say a.length()    # length property
 ```
 
 ---
