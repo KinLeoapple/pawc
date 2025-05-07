@@ -9,9 +9,11 @@ use crate::{
     semantic::type_checker::TypeChecker,
 };
 use clap::Parser;
-use std::fs;
+use std::{fs, process};
 use std::path::PathBuf;
+use futures::executor::block_on;
 use futures_util::TryFutureExt;
+use stacker::maybe_grow;
 
 /// 🐾 PawScript interpreter — execute .paw scripts
 #[derive(Parser, Debug)]
@@ -31,11 +33,20 @@ struct Args {
     verbose: u8,
 }
 
-pub(crate) async fn run() {
+pub fn run_sync() {
     let args = Args::parse();
-    if let Err(err) = run_script(&args.script, args.verbose).await {
-        eprintln!("{}", err);
-        std::process::exit(1);
+    let res = maybe_grow(512 * 1024, 16 * 1024 * 1024, || {
+        block_on(run_script(&args.script, args.verbose))
+    });
+
+    match res {
+        Err(err) => {
+            eprintln!("{}", err);
+            process::exit(1);
+        }
+        Ok(_) => {
+            process::exit(0);
+        }
     }
 }
 

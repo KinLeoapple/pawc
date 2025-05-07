@@ -357,6 +357,37 @@ impl TypeChecker {
                 }
             }
 
+            StatementKind::LoopArray { var, array, body } => {
+                // 1. 推断出 array 表达式的类型
+                let arr_ty = self.check_expr(array)?;
+                // 2. 必须是 Array<T>，取出 inner
+                let elem_ty = match arr_ty {
+                    PawType::Array(inner) => *inner,
+                    other => {
+                        return Err(PawError::Type {
+                            file: self.current_file.clone(),
+                            code: "E3018", // 新增一个错误码，比如 E3018
+                            message: format!("Expected Array<T> in loop, found {}", other),
+                            line: stmt.line,
+                            column: stmt.col,
+                            snippet: None,
+                            hint: Some("Loop over an Array<T> only".into()),
+                        });
+                    }
+                };
+                // 3. 在子作用域中把循环变量绑定为 elem_ty
+                let mut child = TypeChecker::with_parent(&self.scope, &self.current_file);
+                child.scope.define(
+                    var,
+                    elem_ty.clone(),
+                    stmt.line,
+                    stmt.col,
+                    &self.current_file,
+                )?;
+                // 4. 检查循环体
+                child.check_program(body)?;
+            }
+
             StatementKind::Throw(expr) => {
                 let ty = self.check_expr(expr)?;
                 if ty != PawType::String {
@@ -713,7 +744,11 @@ impl TypeChecker {
                 }
             }
 
-            ExprKind::MethodCall { receiver, method, args } => {
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
                 // 1. 推断出接收者的类型
                 let recv_t = self.check_expr(receiver)?;
                 // 2. 推断出所有参数类型
@@ -722,7 +757,7 @@ impl TypeChecker {
                     arg_types.push(self.check_expr(arg)?);
                 }
 
-                // —— String 方法 —— 
+                // —— String 方法 ——
                 if recv_t == PawType::String {
                     match method.as_str() {
                         "trim" | "to_uppercase" | "to_lowercase" => {
@@ -731,7 +766,11 @@ impl TypeChecker {
                                 return Err(PawError::Type {
                                     file: self.current_file.clone(),
                                     code: "E3023",
-                                    message: format!("Method '{}' on String takes no arguments, found {}", method, arg_types.len()),
+                                    message: format!(
+                                        "Method '{}' on String takes no arguments, found {}",
+                                        method,
+                                        arg_types.len()
+                                    ),
                                     line: expr.line,
                                     column: expr.col,
                                     snippet: None,
@@ -745,7 +784,10 @@ impl TypeChecker {
                                 return Err(PawError::Type {
                                     file: self.current_file.clone(),
                                     code: "E3023",
-                                    message: format!("Method 'length' on String takes no arguments, found {}", arg_types.len()),
+                                    message: format!(
+                                        "Method 'length' on String takes no arguments, found {}",
+                                        arg_types.len()
+                                    ),
                                     line: expr.line,
                                     column: expr.col,
                                     snippet: None,
@@ -760,7 +802,11 @@ impl TypeChecker {
                                 return Err(PawError::Type {
                                     file: self.current_file.clone(),
                                     code: "E3024",
-                                    message: format!("Method '{}' on String requires 1 argument, found {}", method, arg_types.len()),
+                                    message: format!(
+                                        "Method '{}' on String requires 1 argument, found {}",
+                                        method,
+                                        arg_types.len()
+                                    ),
                                     line: expr.line,
                                     column: expr.col,
                                     snippet: None,
@@ -771,7 +817,10 @@ impl TypeChecker {
                                 return Err(PawError::Type {
                                     file: self.current_file.clone(),
                                     code: "E3025",
-                                    message: format!("Method '{}' on String requires String argument, found {}", method, arg_types[0]),
+                                    message: format!(
+                                        "Method '{}' on String requires String argument, found {}",
+                                        method, arg_types[0]
+                                    ),
                                     line: expr.line,
                                     column: expr.col,
                                     snippet: None,
@@ -780,20 +829,18 @@ impl TypeChecker {
                             }
                             Ok(PawType::Bool)
                         }
-                        _ => {
-                            Err(PawError::Type {
-                                file: self.current_file.clone(),
-                                code: "E3021",
-                                message: format!("Type String has no method '{}'", method),
-                                line: expr.line,
-                                column: expr.col,
-                                snippet: None,
-                                hint: None,
-                            })
-                        }
+                        _ => Err(PawError::Type {
+                            file: self.current_file.clone(),
+                            code: "E3021",
+                            message: format!("Type String has no method '{}'", method),
+                            line: expr.line,
+                            column: expr.col,
+                            snippet: None,
+                            hint: None,
+                        }),
                     }
                 }
-                // —— Array 方法 —— 
+                // —— Array 方法 ——
                 else if let PawType::Array(inner) = recv_t.clone() {
                     match method.as_str() {
                         "push" => {
@@ -802,7 +849,10 @@ impl TypeChecker {
                                 return Err(PawError::Type {
                                     file: self.current_file.clone(),
                                     code: "E3024",
-                                    message: format!("Method 'push' on Array requires 1 argument, found {}", arg_types.len()),
+                                    message: format!(
+                                        "Method 'push' on Array requires 1 argument, found {}",
+                                        arg_types.len()
+                                    ),
                                     line: expr.line,
                                     column: expr.col,
                                     snippet: None,
@@ -813,7 +863,10 @@ impl TypeChecker {
                                 return Err(PawError::Type {
                                     file: self.current_file.clone(),
                                     code: "E3022",
-                                    message: format!("push 参数类型不匹配：expected {}, found {}", inner, arg_types[0]),
+                                    message: format!(
+                                        "push 参数类型不匹配：expected {}, found {}",
+                                        inner, arg_types[0]
+                                    ),
                                     line: expr.line,
                                     column: expr.col,
                                     snippet: None,
@@ -827,7 +880,10 @@ impl TypeChecker {
                                 return Err(PawError::Type {
                                     file: self.current_file.clone(),
                                     code: "E3023",
-                                    message: format!("Method 'pop' on Array takes no arguments, found {}", arg_types.len()),
+                                    message: format!(
+                                        "Method 'pop' on Array takes no arguments, found {}",
+                                        arg_types.len()
+                                    ),
                                     line: expr.line,
                                     column: expr.col,
                                     snippet: None,
@@ -841,7 +897,10 @@ impl TypeChecker {
                                 return Err(PawError::Type {
                                     file: self.current_file.clone(),
                                     code: "E3023",
-                                    message: format!("Method 'length' on Array takes no arguments, found {}", arg_types.len()),
+                                    message: format!(
+                                        "Method 'length' on Array takes no arguments, found {}",
+                                        arg_types.len()
+                                    ),
                                     line: expr.line,
                                     column: expr.col,
                                     snippet: None,
@@ -854,7 +913,11 @@ impl TypeChecker {
                             return Err(PawError::Type {
                                 file: self.current_file.clone(),
                                 code: "E3021",
-                                message: format!("Type {} has no method '{}'", PawType::Array(inner), method),
+                                message: format!(
+                                    "Type {} has no method '{}'",
+                                    PawType::Array(inner),
+                                    method
+                                ),
                                 line: expr.line,
                                 column: expr.col,
                                 snippet: None,
@@ -863,12 +926,12 @@ impl TypeChecker {
                         }
                     }
                 }
-                // —— Module 方法 —— 
+                // —— Module 方法 ——
                 else if recv_t == PawType::Module {
                     // import 进来的模块对任意方法调用均返回 Any
                     Ok(PawType::Any)
                 }
-                // —— 其它类型不支持 MethodCall —— 
+                // —— 其它类型不支持 MethodCall ——
                 else {
                     Err(PawError::Type {
                         file: self.current_file.clone(),

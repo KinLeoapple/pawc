@@ -253,6 +253,26 @@ impl Interpreter {
                 Ok(None)
             }
 
+            StatementKind::LoopArray { var, array, body } => {
+                // 1. 求值出数组对象
+                let arr_val = self.eval_expr(array).await?;
+                // 2. 必须是 Array，否则跳过
+                let elems = match &*arr_val.0 {
+                    ValueInner::Array(v_arc) => &**v_arc,
+                    _ => return Ok(None),
+                };
+                // 3. 遍历每个元素
+                for item in elems {
+                    // 将循环变量绑定到当前环境
+                    self.env.define(var.clone(), item.clone());
+                    // 执行循环体，遇到 return/break/continue 即透传
+                    if let Some(v) = self.eval_statements(body).await? {
+                        return Ok(Some(v));
+                    }
+                }
+                Ok(None)
+            }
+            
             StatementKind::FunDecl {
                 name,
                 params,

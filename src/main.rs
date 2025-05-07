@@ -1,4 +1,4 @@
-use crate::cli::cli::run;
+use crate::cli::cli::run_sync;
 
 mod semantic;
 mod parser;
@@ -8,7 +8,6 @@ mod ast;
 mod cli;
 mod error;
 
-#[tokio::main]
-async fn main() {
-    run().await
+fn main() {
+    run_sync()
 }

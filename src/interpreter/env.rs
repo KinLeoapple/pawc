@@ -1,7 +1,7 @@
 // src/interpreter/env.rs
 
 use crate::error::error::PawError;
-use crate::interpreter::value::Value;
+use crate::interpreter::value::{Value, ValueInner};
 use ahash::AHashMap;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -55,5 +55,50 @@ impl Env {
 
     pub fn get(&self, key: &str) -> Option<Value> {
         self.0.read().get(key).cloned()
+    }
+
+    /// 对单个值执行一元运算
+    pub fn unary_op(&self, op: &str, v: Value, file: &str) -> Result<Value, PawError> {
+        match v {
+            Value(inner) => match op {
+                // 负号
+                "-" => match &*inner {
+                    ValueInner::Int(i) => Ok(Value::Int(-i)),
+                    ValueInner::Long(l) => Ok(Value::Long(-l)),
+                    ValueInner::Float(f) => Ok(Value::Float(-f)),
+                    other => Err(PawError::Runtime {
+                        file: file.into(),
+                        code: "E3013".into(),
+                        message: format!("Bad unary `-` on {:?}", other),
+                        line: 0,
+                        column: 0,
+                        snippet: None,
+                        hint: None,
+                    }),
+                },
+                // 逻辑非
+                "!" => match &*inner {
+                    ValueInner::Bool(b) => Ok(Value::Bool(!b)),
+                    other => Err(PawError::Runtime {
+                        file: file.into(),
+                        code: "E3013".into(),
+                        message: format!("Bad unary `!` on {:?}", other),
+                        line: 0,
+                        column: 0,
+                        snippet: None,
+                        hint: None,
+                    }),
+                },
+                _ => Err(PawError::Internal {
+                    file: file.into(),
+                    code: "E6002".into(),
+                    message: format!("Unknown unary operator `{}`", op),
+                    line: 0,
+                    column: 0,
+                    snippet: None,
+                    hint: None,
+                }),
+            },
+        }
     }
 }
