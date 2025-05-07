@@ -1,5 +1,7 @@
 // src/cli/cli.rs
 
+use crate::WORKER_STACK_SIZE;
+use crate::STACK_SIZE;
 use crate::parser::parser::Parser as PawParser;
 use crate::{
     error::error::PawError,
@@ -9,17 +11,14 @@ use crate::{
     semantic::type_checker::TypeChecker,
 };
 use clap::Parser;
-use std::{fs, process};
+use std::fs;
 use std::path::PathBuf;
-use futures::executor::block_on;
-use futures_util::TryFutureExt;
-use stacker::maybe_grow;
 
 /// 🐾 PawScript interpreter — execute .paw scripts
 #[derive(Parser, Debug)]
 #[command(
     name = "pawc",
-    version = "0.1.8",
+    version = "0.1.9",
     author = "Kinleoapple",
     about = "🐾 PawScript interpreter — execute .paw scripts"
 )]
@@ -28,30 +27,27 @@ struct Args {
     #[arg(value_name = "SCRIPT", required = true)]
     script: PathBuf,
 
-    /// Verbosity: -v, -vv for more debug output
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    verbose: u8,
+    /// 栈大小（MiB），默认 16
+    #[arg(long, default_value = "1")]
+    pub stack_size: usize,
+
+    /// Tokio 每个 worker 线程的栈大小（MiB），默认 8
+    #[arg(long, default_value = "1")]
+    pub worker_stack_size: usize,
 }
 
-pub fn run_sync() {
+pub(crate) async fn run() {
     let args = Args::parse();
-    let res = maybe_grow(512 * 1024, 16 * 1024 * 1024, || {
-        block_on(run_script(&args.script, args.verbose))
-    });
-
-    match res {
-        Err(err) => {
-            eprintln!("{}", err);
-            process::exit(1);
-        }
-        Ok(_) => {
-            process::exit(0);
-        }
+    STACK_SIZE.set(args.stack_size).ok();
+    WORKER_STACK_SIZE.set(args.worker_stack_size).ok();
+    if let Err(err) = run_script(&args.script).await {
+        eprintln!("{}", err);
+        std::process::exit(1);
     }
 }
 
 /// Load, parse, type‐check and run a PawScript file.
-async fn run_script(script: &PathBuf, verbose: u8) -> Result<(), PawError> {
+async fn run_script(script: &PathBuf) -> Result<(), PawError> {
     // 1. Read file
     let src = fs::read_to_string(script).map_err(|e| PawError::Internal {
         file: script.to_str().unwrap_or_default().into(),
@@ -65,19 +61,12 @@ async fn run_script(script: &PathBuf, verbose: u8) -> Result<(), PawError> {
 
     // 2. Lex & parse
     let tokens = Lexer::new(&src).tokenize();
-    if verbose > 0 {
-        eprintln!("Tokens: {:#?}", tokens);
-    }
 
     let mut parser = PawParser::new(tokens, &src, &*script.to_string_lossy());
     let ast = parser.parse_program().map_err(|err| {
         // If you want, you could fill in err.line/column/snippet here
         err
     })?;
-
-    if verbose > 0 {
-        eprintln!("AST: {:#?}", ast);
-    }
 
     // 3. Static type check
     let mut tc = TypeChecker::new(&*script.to_string_lossy());

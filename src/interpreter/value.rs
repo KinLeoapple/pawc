@@ -4,12 +4,12 @@ use crate::ast::param::Param;
 use crate::ast::statement::Statement;
 use crate::error::error::PawError;
 use crate::interpreter::env::Env;
-use std::{f64, fmt};
+use ahash::AHashMap;
+use futures::lock::Mutex;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc};
-use futures::lock::Mutex;
-use ahash::AHashMap;
+use std::sync::Arc;
+use std::{f64, fmt};
 
 #[derive(Debug,Clone)]
 pub enum ValueInner {
