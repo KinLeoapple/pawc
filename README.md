@@ -6,24 +6,24 @@ Welcome to **PawScript** — a “cute yet practical” statically‑typed, func
 
 ## Table of Contents
 
-1. [Installation & Running](#installation--running)  
-2. [CLI Stack‑Size Options](#cli-stack-size-options)  
-3. [Core Structure](#core-structure)  
-4. [Data Types](#data-types)  
-5. [Optional Types & Null Value](#optional-types--null-value)  
-6. [Variable Declaration](#variable-declaration)  
-7. [Expressions](#expressions)  
-8. [Statements](#statements)  
-9. [Control Flow](#control-flow)  
-10. [Functions](#functions)  
-11. [Asynchronous Programming](#asynchronous-programming)  
-12. [Arrays](#arrays)  
-13. [Record (struct)](#record-struct)  
-14. [Type Casting](#type-casting)  
-15. [Comments](#comments)  
-16. [Error Handling](#error-handling)  
-17. [Module Import](#module-import)  
-18. [Full Example](#full-example)  
+1. [Installation & Running](#installation--running)
+2. [CLI Stack‑Size Options](#cli-stack‑size-options)
+3. [Core Structure](#core-structure)
+4. [Data Types](#data-types)
+5. [Optional Types & Null Value](#optional-types--null-value)
+6. [Variable Declaration](#variable-declaration)
+7. [Expressions](#expressions)
+8. [Statements](#statements)
+9. [Control Flow](#control-flow)
+10. [Functions](#functions)
+11. [Asynchronous Programming](#asynchronous-programming)
+12. [Arrays](#arrays)
+13. [Record (struct)](#record-struct)
+14. [Type Casting](#type-casting)
+15. [Comments](#comments)
+16. [Error Handling](#error-handling)
+17. [Module Import](#module-import)
+18. [Full Example](#full-example)
 
 ---
 
@@ -31,33 +31,31 @@ Welcome to **PawScript** — a “cute yet practical” statically‑typed, func
 
 1. Clone and build:
 
-```bash
+   ```bash
    git clone https://github.com/KinLeoapple/pawc.git
    cd pawc
    cargo build --release
-  ````
+   ```
 
 2. Run a script:
 
-```bash
+   ```bash
    target/release/pawc hello.paw
-    ```
+   ```
 
 ---
 
 ## CLI Stack‑Size Options
 
-PawScript Interpreter supports adjusting stack sizes via CLI flags (in MiB) to accommodate deep‑recursion scenarios.
+PawScript Interpreter supports adjusting the backup stack size for the main thread via a CLI flag (in MiB) to accommodate deep‑recursion scenarios.
 
 ```bash
-# Default: main‑thread backup stack 1MiB, Tokio worker stack 1MiB
+# Default: main‑thread backup stack 1 MiB
 target/release/pawc script.paw
 
-# Custom: main‑thread backup stack 4MiB
+# Custom: main‑thread backup stack 4 MiB
 target/release/pawc --stack-size 4 script.paw
 ```
-
-* `--stack-size <MiB>`: when the main‑thread’s remaining stack <32KiB, expand to this size (default **1**).
 
 ---
 
@@ -118,7 +116,7 @@ x = x + 1               # reassignment
 
 * Declaration/assignment: `let` / `=`
 * Output: `say <expr>`
-* Input: `ask "prompt"` or `let x: String ← ask "?"`
+* Input: `ask "prompt"` or `let x: String <- ask "?"`
 * Return: `return <expr>` or `return`
 
 ---
@@ -166,7 +164,8 @@ To define an asynchronous function, prefix the signature with the `async` keywor
 
 ```paw
 async fun fetchData(url: String): String {
-  bark "network not implemented"
+  // ... perform asynchronous operations ...
+  bark "Fetched data from " + url
   return "data"
 }
 ```
@@ -175,28 +174,17 @@ async fun fetchData(url: String): String {
 * Async functions return a `Future<T>` internally.
 * You can store or pass async functions as values.
 
-### Awaiting
+### Await
 
-Use `await` to suspend execution until a `Future` completes:
+Use `await` to suspend until a `Future` completes:
 
 ```paw
 let content: String = await fetchData("http://example.com/data")
 say "Received: " + content
 ```
 
-* `await` can only be used within an async function or at top‑level script.
-* If applied to a non‑`Future` value, `await` returns it immediately.
-
-### Calling Async Functions Without Await
-
-Calling an async function without `await` returns the `Future` object itself:
-
-```paw
-let fut = fetchData("http://example.com")
-say "Got future: " + fut   # prints a Future placeholder
-```
-
-* Store or pass the future for later awaiting.
+* `await` may be used at top‑level or within async functions.
+* Awaiting a non‑Future returns the value unchanged.
 
 ---
 
@@ -205,18 +193,16 @@ say "Got future: " + fut   # prints a Future placeholder
 ```paw
 let a: Array<Int> = [1, 2, 3]
 say a[0]        # index access
-say a.length()    # length property
+say a.length    # length property
 ```
 
 ---
 
 ## Record (struct)
 
-PawScript now supports **Record** (struct) for user‑defined composite data.
+PawScript supports user‑defined composite types called **Record** (struct).
 
 ### Definition
-
-Use the `record` keyword:
 
 ```paw
 record Point {
@@ -225,33 +211,28 @@ record Point {
 }
 ```
 
-* `Point` has two fields: `x: Int` and `y: Int`.
-* Field names and types are verified at compile time.
+* Fields must all be provided at initialization.
 
 ### Initialization
-
-Provide values by field name:
 
 ```paw
 let p: Point = Point { y: 4, x: 3 }
 ```
 
-* Order may differ but all fields must be provided.
+* Field order is arbitrary.
 
-### Field Access
-
-Use dot syntax:
+### Access
 
 ```paw
-say p.x       # 3
-say p.y       # 4
+say p.x    # 3
+say p.y    # 4
 ```
 
 ---
 
 ## Type Casting
 
-Explicit casts with `as`:
+Use `as` for explicit casts:
 
 ```paw
 let i: Int = 3
@@ -267,8 +248,8 @@ say f + 1.5
 ## Comments
 
 ```paw
-# single-line comment
-let x: Int = 5   # end-of-line comment
+# single‑line comment
+let x: Int = 5   # end‑of‑line comment
 ```
 
 ---
@@ -301,7 +282,7 @@ import utils.math       # binds module to `math`
 import utils.math as m  # binds module to alias `m`
 ```
 
-* Access functions and constants via the module name or alias.
+* Access functions/constants via module name or alias.
 
 ---
 
@@ -311,20 +292,21 @@ import utils.math as m  # binds module to alias `m`
 import utils.math as m
 import string
 
-say "=== Record & Async Tests ==="
+say "=== Record & Async Example ==="
 
-// Record demo
+# Record
 record Point { x: Int, y: Int }
 let p: Point = Point { y: 4, x: 3 }
 say "p.x + p.y = " + (p.x + p.y)
 
-// Async demo
+# Async
 async fun fetchData(url: String): String {
   bark "network not implemented"
+  return "data"
 }
 let result: String = await fetchData("http://example.com")
 
-// Loop with break/continue
+# Loop with break/continue
 let sum: Int = 0
 loop i in 1..10 {
   if i == 5 {
@@ -338,5 +320,4 @@ loop i in 1..10 {
 say "sum = " + sum
 ```
 
-Happy coding in PawScript — cute and powerful!
-
+Enjoy coding in PawScript — cute yet powerful!
