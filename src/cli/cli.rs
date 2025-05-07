@@ -1,18 +1,11 @@
 // src/cli/cli.rs
 
-use crate::WORKER_STACK_SIZE;
-use crate::STACK_SIZE;
+use crate::interpreter::interpreter::Engine;
 use crate::parser::parser::Parser as PawParser;
-use crate::{
-    error::error::PawError,
-    interpreter::env::Env,
-    interpreter::interpreter::Interpreter,
-    lexer::lexer::Lexer,
-    semantic::type_checker::TypeChecker,
-};
+use crate::{error::error::PawError, interpreter::env::Env, interpreter::interpreter::Interpreter, lexer::lexer::Lexer, semantic::type_checker::TypeChecker, STACK_SIZE};
 use clap::Parser;
-use std::fs;
 use std::path::PathBuf;
+use std::fs;
 
 /// 🐾 PawScript interpreter — execute .paw scripts
 #[derive(Parser, Debug)]
@@ -27,19 +20,15 @@ struct Args {
     #[arg(value_name = "SCRIPT", required = true)]
     script: PathBuf,
 
-    /// 栈大小（MiB），默认 16
+    /// 栈大小（MiB），默认 1
     #[arg(long, default_value = "1")]
-    pub stack_size: usize,
-
-    /// Tokio 每个 worker 线程的栈大小（MiB），默认 8
-    #[arg(long, default_value = "1")]
-    pub worker_stack_size: usize,
+    pub stack_size: usize, // MiB
 }
 
 pub(crate) async fn run() {
     let args = Args::parse();
     STACK_SIZE.set(args.stack_size).ok();
-    WORKER_STACK_SIZE.set(args.worker_stack_size).ok();
+    
     if let Err(err) = run_script(&args.script).await {
         eprintln!("{}", err);
         std::process::exit(1);
@@ -77,8 +66,11 @@ async fn run_script(script: &PathBuf) -> Result<(), PawError> {
 
     // 4. Interpret
     let env = Env::new();
-    let mut interp = Interpreter::new(env, &*script.to_string_lossy());
-    interp.eval_statements(&ast).await?;
+    let engine = Engine::new(env, &*script.to_string_lossy());
+    vuot::run(Interpreter {
+        engine,
+        statements: &ast,
+    }).await?;
 
     Ok(())
 }

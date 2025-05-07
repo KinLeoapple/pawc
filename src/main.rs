@@ -1,48 +1,33 @@
-use once_cell::sync::OnceCell;
-use stacker::maybe_grow;
-use tokio::runtime::Builder;
 use crate::cli::cli::run;
+use once_cell::sync::OnceCell;
+use tokio::runtime::Builder;
 
-mod semantic;
-mod parser;
-mod lexer;
-mod interpreter;
 mod ast;
 mod cli;
 mod error;
+mod interpreter;
+mod lexer;
+mod parser;
+mod semantic;
 
-pub static STACK_SIZE: OnceCell<usize> = OnceCell::new();
-pub static WORKER_STACK_SIZE: OnceCell<usize> = OnceCell::new();
+pub static STACK_SIZE: OnceCell<usize> = OnceCell::with_value(1);
 
 fn main() {
-    let stack_mib = *STACK_SIZE.get().unwrap_or(&1);
-    let worker_mib = *WORKER_STACK_SIZE.get().unwrap_or(&1);
+    let stack_size_bytes = STACK_SIZE.get_or_init(|| 1) * 1024 * 1024;
 
-    let red_zone = 32 * 1024;
-    let stack_bytes = stack_mib * 1024 * 1024;
-    let worker_bytes = worker_mib * 1024 * 1024;
-    
-    maybe_grow(32 * 1024, stack_bytes, || {
-        // 在这块大栈闭包里，我们构造并跑 Tokio
-        let cpus = num_cpus::get().max(1);
-        let rt = Builder::new_multi_thread()
-            .worker_threads(cpus)
-            .thread_stack_size(worker_bytes)
-            .enable_all()
-            .build();
-        match rt { 
-            Ok(rt) => {
-                rt.block_on(async {
-                    async_main().await;
-                });
-            }
-            Err(e) => {
-                eprintln!("{}", e);
-            }
+    let cpus = num_cpus::get().max(1);
+    let rt = Builder::new_multi_thread()
+        .worker_threads(cpus)
+        .thread_stack_size(stack_size_bytes)
+        .enable_all()
+        .build();
+
+    match rt {
+        Ok(rt) => {
+            rt.block_on(async { run().await });
         }
-    });
+        Err(err) => {
+            eprintln!("{}", err);
+        }
+    }
 }
-
-async fn async_main() {
-    run().await
-} 

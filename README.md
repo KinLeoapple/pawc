@@ -47,18 +47,17 @@ Welcome to **PawScript** — a “cute yet practical” statically‑typed, func
 
 ## CLI Stack‑Size Options
 
-PawScript Interpreter supports adjusting stack sizes via CLI flags (in MiB) to accommodate deep‑recursion scenarios.
+PawScript Interpreter supports adjusting stack sizes via CLI flags (in MiB) to accommodate deep‑recursion scenarios.
 
 ```bash
-# Default: main‑thread backup stack 1MiB, Tokio worker stack 1 MiB
+# Default: main‑thread backup stack 1MiB, Tokio worker stack 1MiB
 target/release/pawc script.paw
 
-# Custom: main‑thread backup stack 4MiB, worker stack 2 MiB
-target/release/pawc --stack-size 4 --worker-stack-size 2 script.paw
+# Custom: main‑thread backup stack 4MiB
+target/release/pawc --stack-size 4 script.paw
 ```
 
-* `--stack-size <MiB>`: when the main‑thread’s remaining stack < 32 KiB, expand to this size (default **1**).
-* `--worker-stack-size <MiB>`: Tokio worker threads’ stack size (default **1**).
+* `--stack-size <MiB>`: when the main‑thread’s remaining stack <32KiB, expand to this size (default **1**).
 
 ---
 
