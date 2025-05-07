@@ -1,28 +1,35 @@
+Thought for a couple of seconds
+
+
+Thought for 5 seconds
+
+
 # 🐾 PawScript 入门指南
 
-欢迎使用 **PawScript** —— 一种“可爱又实用”的静态类型函数式脚本语言。本指南覆盖 v0.1 版所有语法，包括 **记录（Record/结构体）**、**可选类型**、**异步/等待**、**错误处理**、**模块导入** 等。
+欢迎使用 **PawScript** — 一门“萌 yet 实用”的静态类型函数式脚本语言。本指南涵盖 v0.1 的全部语法，包括**记录（struct）**、**可选类型**、**异步/await**、**错误处理**、**模块导入**等内容。
 
 ---
 
 ## 目录
 
 1. [安装与运行](#安装与运行)
-2. [核心结构](#核心结构)
-3. [数据类型](#数据类型)
-4. [可选类型与 Null](#可选类型与-null)
-5. [变量声明](#变量声明)
-6. [表达式](#表达式)
-7. [语句](#语句)
-8. [控制流](#控制流)
-9. [函数](#函数)
-10. [异步编程](#异步编程)
-11. [数组](#数组)
-12. [记录（Record/结构体）](#记录record结构体)
-13. [类型转换](#类型转换)
-14. [注释](#注释)
-15. [错误处理](#错误处理)
-16. [模块导入](#模块导入)
-17. [完整示例](#完整示例)
+2. [CLI 栈大小选项](#cli-栈大小选项)
+3. [核心结构](#核心结构)
+4. [数据类型](#数据类型)
+5. [可选类型 & 空值](#可选类型--空值)
+6. [变量声明](#变量声明)
+7. [表达式](#表达式)
+8. [语句](#语句)
+9. [控制流](#控制流)
+10. [函数](#函数)
+11. [异步编程](#异步编程)
+12. [数组](#数组)
+13. [记录（struct）](#记录struct)
+14. [类型转换](#类型转换)
+15. [注释](#注释)
+16. [错误处理](#错误处理)
+17. [模块导入](#模块导入)
+18. [完整示例](#完整示例)
 
 ---
 
@@ -35,6 +42,7 @@
    cd pawc
    cargo build --release
    ```
+
 2. 运行脚本：
 
    ```bash
@@ -43,27 +51,41 @@
 
 ---
 
+## CLI 栈大小选项
+
+PawScript 解释器支持通过命令行参数调整主线程的备份栈大小（单位 MiB），以应对深度递归场景。
+
+```bash
+# 默认：主线程备份栈 1 MiB
+target/release/pawc script.paw
+
+# 自定义：主线程备份栈 4 MiB
+target/release/pawc --stack-size 4 script.paw
+```
+
+---
+
 ## 核心结构
 
-PawScript 程序由按顺序执行的语句和函数声明组成。
+PawScript 程序由语句和函数声明按顺序执行组成。
 
 ---
 
 ## 数据类型
 
-* **基本类型**：`Int`、`Long`、`Float`、`Double`、`Bool`、`Char`、`String`
-* **泛型类型**：`Array<T>`
-* **特殊类型**：`Any`（动态类型）、`Optional<T>`（可空，可写作 `T?`）
+* **原始类型**：`Int`, `Long`, `Float`, `Double`, `Bool`, `Char`, `String`
+* **泛型**：`Array<T>`
+* **特殊类型**：`Any`（动态类型），`Optional<T>`（可空类型，可写作 `T?`）
 
 ---
 
-## 可选类型与 Null
+## 可选类型 & 空值
 
-PawScript 支持可选类型来表示可能不存在的值。
+PawScript 支持可选类型来表示可能缺失的值。
 
-* 可选类型通过在类型后加 `?` 声明，例如 `Int?` 等价于 `Optional<Int>`。
-* 空值字面量为 `nopaw`。
-* 将 `nopaw` 赋给非可选类型会导致编译错误。
+* 在类型后追加 `?` 来声明可选类型，例如 `Int?` 等同于 `Optional<Int>`。
+* 空字面量为 `nopaw`。
+* 将 `nopaw` 赋值给非可选类型会导致编译期错误。
 
 示例：
 
@@ -79,20 +101,20 @@ if maybeNum == nopaw {
 ## 变量声明
 
 ```paw
-let x: Int = 10       # 声明并初始化
-let y: Int? = nopaw   # 可选类型
-x = x + 1              # 重新赋值
+let x: Int = 10
+let y: Int? = nopaw    # 可选类型
+x = x + 1               # 重新赋值
 ```
 
 ---
 
 ## 表达式
 
-* 算术运算：`+ - * / %`
-* 比较运算：`== != < <= > >=`
-* 逻辑运算：`&& || !`
+* 算术：`+ - * / %`
+* 比较：`== != < <= > >=`
+* 逻辑：`&& || !`
 * 字符串拼接：`"Hi " + name + "!"`
-* 等待结果：`await <asyncCall>`
+* Await：`await <asyncCall>`
 * 分组：`(a + b) * c`
 
 ---
@@ -101,7 +123,7 @@ x = x + 1              # 重新赋值
 
 * 声明/赋值：`let` / `=`
 * 输出：`say <expr>`
-* 输入：`ask "提示"` 或 `let x: String <- ask "?"`
+* 输入：`ask "prompt"` 或 `let x: String <- ask "?"`
 * 返回：`return <expr>` 或 `return`
 
 ---
@@ -120,10 +142,11 @@ if cond {
 loop forever { … }
 loop cond { … }
 loop i in start..end { … }
+loop item in array { … }
 ```
 
-* `break` 跳出最近的循环。
-* `continue` 跳过本次迭代。
+* `break` 退出最近的循环。
+* `continue` 跳到下一次迭代。
 
 ---
 
@@ -140,47 +163,34 @@ let result: Int = add(1, 2)
 
 ## 异步编程
 
-PawScript 支持定义异步函数并等待其结果，实现非阻塞 I/O 和并发任务。
+PawScript 支持定义异步函数并使用 `await`，实现非阻塞 I/O 和并发任务。
 
 ### 异步函数
 
-在 `fun` 前添加 `async` 关键字：
+在函数前添加 `async` 关键字：
 
 ```paw
 async fun fetchData(url: String): String {
-  // ... 异步操作 ...
-  bark "Fetched data from " + url
+  # 模拟异步操作
+  bark "network not implemented"
   return "data"
 }
 ```
 
-* `async` 必须写在 `fun` 前。
-* 异步函数内部返回类型视作 `Future<T>`。
-* 可以将异步函数作为值传递或存储。
+* `async` 必须出现在 `fun` 之前。
+* 异步函数内部返回 `Future<T>`。
 
-### 等待结果
+### Await
 
-使用 `await` 暂停执行直到 `Future` 完成：
+使用 `await` 等待 `Future` 完成：
 
 ```paw
 let content: String = await fetchData("http://example.com/data")
-say "收到: " + content
+say "Received: " + content
 ```
 
-* `await` 可在脚本顶层或异步函数内使用。
-* 对非 `Future` 值应用 `await` 时，立即返回该值。
-* 在非异步上下文使用 `await` 会报编译错误。
-
-### 不等待的调用
-
-不使用 `await` 调用异步函数会返回 `Future` 对象：
-
-```paw
-let fut = fetchData("http://example.com")
-say "Future: " + fut
-```
-
-* 可将 `Future` 存储或传递以待后续 `await`。
+* `await` 可在顶层或异步函数中使用。
+* 对非 Future 应用 `await` 会原样返回该值。
 
 ---
 
@@ -188,19 +198,17 @@ say "Future: " + fut
 
 ```paw
 let a: Array<Int> = [1, 2, 3]
-say a[0]      # 索引访问
-say a.length  # 长度属性
+say a[0]        # 索引访问
+say a.length    # 长度属性
 ```
 
 ---
 
-## 记录（Record/结构体）
+## 记录（struct）
 
-PawScript 支持 **Record**（类似结构体）定义复合数据。
+PawScript 支持用户自定义复合类型 **Record**（struct）。
 
 ### 定义
-
-使用 `record` 关键字：
 
 ```paw
 record Point {
@@ -209,32 +217,28 @@ record Point {
 }
 ```
 
-* `Point` 类型包含字段 `x` 和 `y`。
+* 初始化时必须提供所有字段。
 
 ### 初始化
-
-字段名赋值：
 
 ```paw
 let p: Point = Point { y: 4, x: 3 }
 ```
 
-* 字段顺序可与定义顺序不同，但必须提供所有字段。
+* 字段顺序可任意。
 
-### 字段访问
-
-点式语法：
+### 访问
 
 ```paw
-say p.x  # 3
-say p.y  # 4
+say p.x    # 3
+say p.y    # 4
 ```
 
 ---
 
 ## 类型转换
 
-使用 `as` 关键字：
+使用 `as` 进行显式转换：
 
 ```paw
 let i: Int = 3
@@ -242,8 +246,8 @@ let f: Float = i as Float
 say f + 1.5
 ```
 
-* 支持 `Int ↔ Long ↔ Float ↔ Double` 之间转换。
-* 无效转换编译时报错。
+* 支持 `Int ↔ Long ↔ Float ↔ Double`。
+* 无效转换为编译期错误。
 
 ---
 
@@ -251,7 +255,7 @@ say f + 1.5
 
 ```paw
 # 单行注释
-let x: Int = 5  # 行尾注释
+let x: Int = 5   # 行尾注释
 ```
 
 ---
@@ -269,9 +273,9 @@ let x: Int = 5  # 行尾注释
 sniff {
   …
 } snatch (e) {
-  say "捕获错误: " + e
+  say "Caught: " + e
 } lastly {
-  say "清理完成"
+  say "Cleanup"
 }
 ```
 
@@ -280,12 +284,11 @@ sniff {
 ## 模块导入
 
 ```paw
-import utils.math       # 绑定为 math
-import utils.math as m  # 绑定为 m
+import utils.math       # 绑定模块到 `math`
+import utils.math as m  # 绑定模块到别名 `m`
 ```
 
-* 不写别名时，模块名取最后一段路径。
-* 使用 `模块名.成员` 访问函数和常量。
+* 通过模块名或别名访问其中的函数/常量。
 
 ---
 
@@ -295,26 +298,32 @@ import utils.math as m  # 绑定为 m
 import utils.math as m
 import string
 
-say "=== Record & Async 示例 ==="
+say "=== Record & Async Example ==="
 
-// Record 示例\ nrecord Point { x: Int, y: Int }
+# 记录
+record Point { x: Int, y: Int }
 let p: Point = Point { y: 4, x: 3 }
 say "p.x + p.y = " + (p.x + p.y)
 
-// Async 示例
+# 异步
 async fun fetchData(url: String): String {
   bark "network not implemented"
+  return "data"
 }
 let result: String = await fetchData("http://example.com")
 
-// 循环示例
+# 带 break/continue 的循环
 let sum: Int = 0
 loop i in 1..10 {
-  if i == 5 { continue }
-  if i == 8 { break }
+  if i == 5 {
+    continue
+  }
+  if i == 8 {
+    break
+  }
   sum = sum + i
 }
 say "sum = " + sum
 ```
 
-祝您在 PawScript 中编程愉快！ —— 可爱而强大！
+祝您在 PawScript 的世界里编程愉快！

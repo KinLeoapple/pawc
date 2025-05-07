@@ -10,7 +10,7 @@ pub enum TokenKind {
     StringLiteral(String),
     CharLiteral(char),
     BoolLiteral(bool),
-
+    
     // Identifiers and keywords
     Identifier(String),
     Type(String),

@@ -1,13 +1,13 @@
 [package]
-name        = "pawc"
-version     = "0.1.8"
-authors     = ["Kinleoapple"]
+name = "pawc"
+version = "0.1.9"
+authors = ["Kinleoapple"]
 description = "🐾 PawScript interpreter"
-license     = "MIT"
-repository  = "https://github.com/KinLeoapple/pawc"
-homepage    = "https://github.com/KinLeoapple/pawc"
-keywords    = ["pawscript", "interpreter"]
-edition     = "2021"
+license = "MIT"
+repository = "https://github.com/KinLeoapple/pawc"
+homepage = "https://github.com/KinLeoapple/pawc"
+keywords = ["pawscript", "interpreter"]
+edition = "2021"
 
 [[bin]]
 name = "pawc"
@@ -22,9 +22,10 @@ panic = "abort"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 colored = "3.0"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-futures-util = "0.3"
-async-recursion = "1.0"
 futures = "0.3.31"
+tokio = { version = "1", features = ["full"] }
 ahash = "0.8"
 parking_lot = "0.12"
+num_cpus = "1.16.0"
+once_cell = "1.21.3"
+vuot ="0.0.1"

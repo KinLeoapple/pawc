@@ -1,28 +1,29 @@
 # 🐾 PawScript Getting Started Guide
 
-Welcome to **PawScript** — a “cute yet practical” statically-typed, functional scripting language. This README covers all v0.1 syntax, including **Record (struct)**, **Optional types**, **async/await**, **error handling**, **module import**, and more.
+Welcome to **PawScript** — a “cute yet practical” statically‑typed, functional scripting language. This README covers all v0.1 syntax, including **Record (struct)**, **Optional types**, **async/await**, **error handling**, **module import**, and more.
 
 ---
 
 ## Table of Contents
 
 1. [Installation & Running](#installation--running)
-2. [Core Structure](#core-structure)
-3. [Data Types](#data-types)
-4. [Optional Types & Null Value](#optional-types--null-value)
-5. [Variable Declaration](#variable-declaration)
-6. [Expressions](#expressions)
-7. [Statements](#statements)
-8. [Control Flow](#control-flow)
-9. [Functions](#functions)
-10. [Asynchronous Programming](#asynchronous-programming)
-11. [Arrays](#arrays)
-12. [Record (struct)](#record-struct)
-13. [Type Casting](#type-casting)
-14. [Comments](#comments)
-15. [Error Handling](#error-handling)
-16. [Module Import](#module-import)
-17. [Full Example](#full-example)
+2. [CLI Stack‑Size Options](#cli-stack‑size-options)
+3. [Core Structure](#core-structure)
+4. [Data Types](#data-types)
+5. [Optional Types & Null Value](#optional-types--null-value)
+6. [Variable Declaration](#variable-declaration)
+7. [Expressions](#expressions)
+8. [Statements](#statements)
+9. [Control Flow](#control-flow)
+10. [Functions](#functions)
+11. [Asynchronous Programming](#asynchronous-programming)
+12. [Arrays](#arrays)
+13. [Record (struct)](#record-struct)
+14. [Type Casting](#type-casting)
+15. [Comments](#comments)
+16. [Error Handling](#error-handling)
+17. [Module Import](#module-import)
+18. [Full Example](#full-example)
 
 ---
 
@@ -35,11 +36,26 @@ Welcome to **PawScript** — a “cute yet practical” statically-typed, functi
    cd pawc
    cargo build --release
    ```
+
 2. Run a script:
 
    ```bash
    target/release/pawc hello.paw
    ```
+
+---
+
+## CLI Stack‑Size Options
+
+PawScript Interpreter supports adjusting the backup stack size for the main thread via a CLI flag (in MiB) to accommodate deep‑recursion scenarios.
+
+```bash
+# Default: main‑thread backup stack 1 MiB
+target/release/pawc script.paw
+
+# Custom: main‑thread backup stack 4 MiB
+target/release/pawc --stack-size 4 script.paw
+```
 
 ---
 
@@ -63,7 +79,7 @@ PawScript supports optional types to represent possibly missing values.
 
 * Declare an optional type by appending `?`, e.g. `Int?` is `Optional<Int>`.
 * The null literal is `nopaw`.
-* Assigning `nopaw` to a non-optional type is a compile error.
+* Assigning `nopaw` to a non‑optional type is a compile‑time error.
 * Example:
 
   ```paw
@@ -90,7 +106,7 @@ x = x + 1               # reassignment
 * Arithmetic: `+ - * / %`
 * Comparison: `== != < <= > >=`
 * Logic: `&& || !`
-* String concat: `"Hi " + name + "!"`
+* String concatenation: `"Hi " + name + "!"`
 * Await: `await <asyncCall>`
 * Grouping: `(a + b) * c`
 
@@ -119,6 +135,7 @@ if cond {
 loop forever { … }
 loop cond { … }
 loop i in start..end { … }
+loop item in array { … }
 ```
 
 * `break` exits the nearest loop.
@@ -129,10 +146,10 @@ loop i in start..end { … }
 ## Functions
 
 ```paw
-fun name(a: Int, b: Float): String {
-  return "…"
+fun add(a: Int, b: Int): Int {
+  return a + b
 }
-let s: String = name(1, 2.5)
+let result: Int = add(1, 2)
 ```
 
 ---
@@ -153,41 +170,28 @@ async fun fetchData(url: String): String {
 }
 ```
 
-* `async` must appear before the `fun` keyword, not after the return type.
+* `async` must appear before the `fun` keyword.
 * Async functions return a `Future<T>` internally.
 * You can store or pass async functions as values.
 
-### Awaiting
+### Await
 
-Use `await` to suspend execution until a `Future` completes:
+Use `await` to suspend until a `Future` completes:
 
 ```paw
 let content: String = await fetchData("http://example.com/data")
 say "Received: " + content
 ```
 
-* `await` can only be used within an async function or at top‑level script.
-* If applied to a non‑`Future` value, `await` returns it immediately.
-* Attempting to `await` outside an async context will be a compile‑time error.
-
-### Calling Async Functions Without Await
-
-Calling an async function without `await` returns the `Future` object itself:
-
-```paw
-let fut = fetchData("http://example.com")
-say "Got future: " + fut   # prints a Future placeholder
-```
-
-* Store or pass the future for later awaiting.
-* Futures can be composed or passed to other async calls.
+* `await` may be used at top‑level or within async functions.
+* Awaiting a non‑Future returns the value unchanged.
 
 ---
 
 ## Arrays
 
 ```paw
-let a: Array<Int> = [1,2,3]
+let a: Array<Int> = [1, 2, 3]
 say a[0]        # index access
 say a.length    # length property
 ```
@@ -196,11 +200,9 @@ say a.length    # length property
 
 ## Record (struct)
 
-PawScript now supports **Record** (struct) for user-defined composite data.
+PawScript supports user‑defined composite types called **Record** (struct).
 
 ### Definition
-
-Use the `record` keyword:
 
 ```paw
 record Point {
@@ -209,33 +211,28 @@ record Point {
 }
 ```
 
-* `Point` has two fields: `x: Int` and `y: Int`.
-* Field names and types are verified at compile time.
+* Fields must all be provided at initialization.
 
 ### Initialization
-
-Provide values by field name:
 
 ```paw
 let p: Point = Point { y: 4, x: 3 }
 ```
 
-* Order may differ but all fields must be provided.
+* Field order is arbitrary.
 
-### Field Access
-
-Use dot syntax:
+### Access
 
 ```paw
-say p.x       # 3
-say p.y       # 4
+say p.x    # 3
+say p.y    # 4
 ```
 
 ---
 
 ## Type Casting
 
-Explicit casts with `as`:
+Use `as` for explicit casts:
 
 ```paw
 let i: Int = 3
@@ -244,15 +241,15 @@ say f + 1.5
 ```
 
 * Supports `Int ↔ Long ↔ Float ↔ Double`.
-* Invalid casts are compile errors.
+* Invalid casts are compile‑time errors.
 
 ---
 
 ## Comments
 
 ```paw
-# single-line comment
-let x: Int = 5   # end-of-line comment
+# single‑line comment
+let x: Int = 5   # end‑of‑line comment
 ```
 
 ---
@@ -281,11 +278,11 @@ sniff {
 ## Module Import
 
 ```paw
-import utils.math       # binds module to `math` (last path segment)
+import utils.math       # binds module to `math`
 import utils.math as m  # binds module to alias `m`
 ```
 
-* Access functions and constants via the module name or alias.
+* Access functions/constants via module name or alias.
 
 ---
 
@@ -295,20 +292,21 @@ import utils.math as m  # binds module to alias `m`
 import utils.math as m
 import string
 
-say "=== Record & Async Tests ==="
+say "=== Record & Async Example ==="
 
-// Record demo
+# Record
 record Point { x: Int, y: Int }
 let p: Point = Point { y: 4, x: 3 }
 say "p.x + p.y = " + (p.x + p.y)
 
-// Async demo
-fun fetchData(url: String): String async {
+# Async
+async fun fetchData(url: String): String {
   bark "network not implemented"
+  return "data"
 }
 let result: String = await fetchData("http://example.com")
 
-// Loop with break/continue
+# Loop with break/continue
 let sum: Int = 0
 loop i in 1..10 {
   if i == 5 {
@@ -322,4 +320,4 @@ loop i in 1..10 {
 say "sum = " + sum
 ```
 
-Happy coding in PawScript — cute and powerful!
+Enjoy coding in PawScript — cute yet powerful!

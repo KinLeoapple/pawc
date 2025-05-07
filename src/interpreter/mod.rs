@@ -1,3 +1,3 @@
 pub(crate) mod env;
-mod value;
+pub(crate) mod value;
 pub mod interpreter;

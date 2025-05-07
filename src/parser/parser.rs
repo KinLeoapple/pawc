@@ -5,6 +5,7 @@ use crate::ast::method::Method;
 use crate::ast::param::Param;
 use crate::ast::statement::{Statement, StatementKind};
 use crate::error::error::PawError;
+use crate::lexer::lexer::Lexer;
 use crate::lexer::token::{Token, TokenKind};
 
 pub struct Parser {
@@ -451,25 +452,38 @@ impl Parser {
             let body = self.parse_block()?;
             return Ok(Statement::new(StatementKind::LoopForever(body), line, col));
         }
-        // range: loop i in start..end
-        if let (Some(TokenKind::Identifier(var)), Some(TokenKind::Keyword(k))) =
-            (self.peek_kind(), self.peek_n_kind(1))
-        {
-            if k == "in" {
+        // —— range-loop 或 array-loop 都是 “ident in …” 开头 ——
+        if let Some(TokenKind::Identifier(var)) = self.peek_kind().cloned() {
+            if matches!(self.peek_n_kind(1),Some(TokenKind::Keyword(k)) if k == "in") {
                 let var = var.clone();
-                self.next();
-                self.next();
-                let start = self.parse_expr()?;
-                self.expect_token(TokenKind::Range)?;
-                let end = self.parse_expr()?;
+                self.next(); // 消耗变量名
+                self.next(); // 消耗 `in`
+
+                // 先 parse_expr 拿到第一个 Expr，既可能是 range 的 start，也可能是 array 本身
+                let first = self.parse_expr()?;
+
+                // 如果紧接着是 `..`，就是 range-loop
+                if self.peek_token(TokenKind::Range) {
+                    self.next(); // consume `..`
+                    let end = self.parse_expr()?;
+                    let body = self.parse_block()?;
+                    return Ok(Statement::new(
+                        StatementKind::LoopRange {
+                            var,
+                            start: first,
+                            end,
+                            body,
+                        },
+                        line,
+                        col,
+                    ));
+                }
+
+                // 否则就是 array-loop
+                let array = first;
                 let body = self.parse_block()?;
                 return Ok(Statement::new(
-                    StatementKind::LoopRange {
-                        var,
-                        start,
-                        end,
-                        body,
-                    },
+                    StatementKind::LoopArray { var, array, body },
                     line,
                     col,
                 ));
@@ -565,7 +579,7 @@ impl Parser {
     /// 字面量、变量、调用、索引、RecordInit、属性访问…
     fn parse_primary(&mut self) -> Result<Expr, PawError> {
         let (line, col) = self.wrap_position();
-
+        
         // nopaw 字面量
         if self.peek_keyword("nopaw") {
             self.next();
@@ -872,20 +886,20 @@ impl Parser {
 
     fn parse_method(&self, name: &str) -> Method {
         match name {
-            "trim"         => Method::Trim,
+            "trim" => Method::Trim,
             "to_uppercase" => Method::ToUppercase,
             "to_lowercase" => Method::ToLowercase,
-            "length"       => {
+            "length" => {
                 // 根据前面解析的 receiver 类型决定是 String 还是 Array
                 // 这里暂时都存 Length，让解释器再分支
                 Method::Length
             }
-            "starts_with"  => Method::StartsWith,
-            "ends_with"    => Method::EndsWith,
-            "contains"     => Method::Contains,
-            "push"         => Method::Push,
-            "pop"          => Method::Pop,
-            _              => Method::Other,
+            "starts_with" => Method::StartsWith,
+            "ends_with" => Method::EndsWith,
+            "contains" => Method::Contains,
+            "push" => Method::Push,
+            "pop" => Method::Pop,
+            _ => Method::Other,
         }
     }
 }

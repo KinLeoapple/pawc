@@ -1,6 +1,5 @@
 // src/interpreter/interpreter.rs
 
-use crate::ast::expr::BinaryOp::EqEq;
 use crate::ast::expr::{Expr, ExprKind};
 use crate::ast::method::Method;
 use crate::ast::statement::{Statement, StatementKind};
@@ -11,33 +10,44 @@ use crate::lexer::lexer::Lexer;
 use crate::parser::parser::Parser;
 use crate::semantic::type_checker::TypeChecker;
 use ahash::AHashMap;
-use async_recursion::async_recursion;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use vuot::{Stack, StacklessFn};
+
+pub struct Interpreter<'local> {
+    pub engine: Engine,
+    pub statements: &'local [Statement]
+}
+
+impl<'a> StacklessFn<'a, Result<Option<Value>, PawError>> for Interpreter<'_> {
+    async fn call(mut self, stack: Stack<'_>) -> Result<Option<Value>, PawError> {
+        self.engine.eval_statements(stack, self.statements).await
+    }
+}
 
 /// 主解释器
-pub struct Interpreter {
+pub struct Engine {
     pub env: Env,
     pub file: String,
 }
 
-impl Interpreter {
+impl Engine {
     /// 创建一个新的解释器实例
     pub fn new(env: Env, file: &str) -> Self {
-        Interpreter {
+        Engine {
             env,
             file: file.to_string(),
         }
     }
 
     /// 执行多条语句，遇到 return/throw 提前返回
-    #[async_recursion]
-    pub async fn eval_statements(
+    pub async fn eval_statements<'a>(
         &mut self,
+        stack: Stack<'a>,
         stmts: &[Statement],
     ) -> Result<Option<Value>, PawError> {
         for stmt in stmts {
-            if let Some(v) = self.eval_statement(stmt).await? {
+            if let Some(v) = stack.run(self.eval_statement(stack, stmt)).await? {
                 return Ok(Some(v));
             }
         }
@@ -45,23 +55,25 @@ impl Interpreter {
     }
 
     /// 执行单条语句
-    #[async_recursion]
-    pub async fn eval_statement(&mut self, stmt: &Statement) -> Result<Option<Value>, PawError> {
+    pub async fn eval_statement<'a>(
+        &mut self,
+        stack: Stack<'a>,
+        stmt: &Statement) -> Result<Option<Value>, PawError> {
         match &stmt.kind {
             StatementKind::Let { name, ty: _, value } => {
-                let v = self.eval_expr(value).await?;
+                let v = stack.run(self.eval_expr(stack, value)).await?;
                 self.env.define(name.clone(), v);
                 Ok(None)
             }
 
             StatementKind::Assign { name, value } => {
-                let v = self.eval_expr(value).await?;
+                let v = stack.run(self.eval_expr(stack, value)).await?;
                 self.env.assign(name, v)?;
                 Ok(None)
             }
 
             StatementKind::Say(expr) => {
-                let v = self.eval_expr(expr).await?;
+                let v = stack.run(self.eval_expr(stack, expr)).await?;
                 println!("{}", v);
                 Ok(None)
             }
@@ -141,8 +153,8 @@ impl Interpreter {
                 // 5. 执行模块
                 let module_env = Env::with_parent(&self.env);
                 let mut module_interp =
-                    Interpreter::new(module_env.clone(), &*path.to_string_lossy());
-                let _ = module_interp.eval_statements(&stmts).await?;
+                    Engine::new(module_env.clone(), &*path.to_string_lossy());
+                let _ = stack.run(module_interp.eval_statements(stack, &stmts)).await?;
 
                 // 6. 收集子环境所有顶层绑定，打包成 Module
                 let module_val = {
@@ -156,7 +168,7 @@ impl Interpreter {
 
             StatementKind::Return(opt) => {
                 let v = if let Some(e) = opt {
-                    self.eval_expr(e).await?
+                    stack.run(self.eval_expr(stack, e)).await?
                 } else {
                     Value::Null()
                 };
@@ -167,7 +179,7 @@ impl Interpreter {
             StatementKind::Continue => Ok(Some(Value::Bool(false))),
 
             StatementKind::Expr(expr) => {
-                let _ = self.eval_expr(expr).await?;
+                let _ = stack.run(self.eval_expr(stack, expr)).await?;
                 Ok(None)
             }
 
@@ -177,20 +189,20 @@ impl Interpreter {
                 else_branch,
             } => {
                 // 1. 先计算 condition
-                let cond_val = self.eval_expr(condition).await?;
+                let cond_val = stack.run(self.eval_expr(stack, condition)).await?;
 
                 // 2. 解构出内部 Arc<ValueInner>
                 if let Value(inner_arc) = cond_val.clone() {
                     // inner_arc: Arc<ValueInner>
                     if let ValueInner::Bool(true) = &*inner_arc {
                         // then 分支
-                        if let Some(v) = self.eval_statements(body).await? {
+                        if let Some(v) = stack.run(self.eval_statements(stack, body)).await? {
                             return Ok(Some(v));
                         }
                         // 如果 then 不返回值，跳到最后的 Ok(None)
                     } else if let Some(else_stmt) = else_branch {
                         // else 分支（或嵌套的 if-else）
-                        if let Some(v) = self.eval_statement(else_stmt).await? {
+                        if let Some(v) = stack.run(self.eval_statement(stack, else_stmt)).await? {
                             return Ok(Some(v));
                         }
                     }
@@ -201,7 +213,7 @@ impl Interpreter {
             }
 
             StatementKind::LoopForever(body) => loop {
-                let res = self.eval_statements(body).await?;
+                let res = stack.run(self.eval_statements(stack, body)).await?;
                 if res.is_some() {
                     return Ok(res);
                 }
@@ -210,13 +222,13 @@ impl Interpreter {
             StatementKind::LoopWhile { condition, body } => {
                 loop {
                     // 1. 先求出条件
-                    let cond_val = self.eval_expr(condition).await?;
+                    let cond_val = stack.run(self.eval_expr(stack, condition)).await?;
                     // 2. 判断是否为 Bool(true)
                     if cond_val != Value::Bool(true) {
                         break;
                     }
                     // 3. 条件为真时执行循环体
-                    if let Some(v) = self.eval_statements(body).await? {
+                    if let Some(v) = stack.run(self.eval_statements(stack, body)).await? {
                         // 如果循环体里 return/break/continue 返回了值，就直接透传
                         return Ok(Some(v));
                     }
@@ -224,7 +236,7 @@ impl Interpreter {
                 }
                 Ok(None)
             }
-            
+
             StatementKind::LoopRange {
                 var,
                 start,
@@ -232,8 +244,8 @@ impl Interpreter {
                 body,
             } => {
                 // 先分别计算 start、end
-                let s_val = self.eval_expr(start).await?;
-                let e_val = self.eval_expr(end).await?;
+                let s_val = stack.run(self.eval_expr(stack, start)).await?;
+                let e_val = stack.run(self.eval_expr(stack, end)).await?;
 
                 use crate::interpreter::value::ValueInner;
                 // 解构出两个 i32
@@ -246,7 +258,27 @@ impl Interpreter {
                 // 执行范围循环
                 for i in si..ei {
                     self.env.define(var.clone(), Value::Int(i));
-                    if let Some(v) = self.eval_statements(body).await? {
+                    if let Some(v) = stack.run(self.eval_statements(stack, body)).await? {
+                        return Ok(Some(v));
+                    }
+                }
+                Ok(None)
+            }
+
+            StatementKind::LoopArray { var, array, body } => {
+                // 1. 求值出数组对象
+                let arr_val = stack.run(self.eval_expr(stack, array)).await?;
+                // 2. 必须是 Array，否则跳过
+                let elems = match &*arr_val.0 {
+                    ValueInner::Array(v_arc) => &**v_arc,
+                    _ => return Ok(None),
+                };
+                // 3. 遍历每个元素
+                for item in elems {
+                    // 将循环变量绑定到当前环境
+                    self.env.define(var.clone(), item.clone());
+                    // 执行循环体，遇到 return/break/continue 即透传
+                    if let Some(v) = stack.run(self.eval_statements(stack, body)).await? {
                         return Ok(Some(v));
                     }
                 }
@@ -273,8 +305,8 @@ impl Interpreter {
 
             StatementKind::Block(stmts) => {
                 let child_env = Env::with_parent(&self.env);
-                let mut child = Interpreter::new(child_env, &self.file);
-                let _ = child.eval_statements(stmts).await?;
+                let mut child = Engine::new(child_env, &self.file);
+                let _ = stack.run(child.eval_statements(stack, stmts)).await?;
                 Ok(None)
             }
 
@@ -286,31 +318,31 @@ impl Interpreter {
             } => {
                 // try
                 let try_res = {
-                    let mut ti = Interpreter::new(Env::with_parent(&self.env), &self.file);
-                    ti.eval_statements(body).await
+                    let mut ti = Engine::new(Env::with_parent(&self.env), &self.file);
+                    stack.run(ti.eval_statements(stack, body)).await
                 };
                 match try_res {
                     Ok(Some(v)) => return Ok(Some(v)),
                     Ok(None) => { /* 正常 */ }
                     Err(err) => {
-                        if let PawError::Runtime { message, .. } = err {
+                        return if let PawError::Runtime { message, .. } = err {
                             // catch
-                            let mut ci = Interpreter::new(Env::with_parent(&self.env), &self.file);
+                            let mut ci = Engine::new(Env::with_parent(&self.env), &self.file);
                             ci.env.define(err_name.clone(), Value::String(message));
-                            let catch_r = ci.eval_statements(handler).await?;
+                            let catch_r = stack.run(ci.eval_statements(stack, handler)).await?;
                             // finally
-                            let _ = Interpreter::new(Env::with_parent(&self.env), &self.file)
-                                .eval_statements(finally)
+                            let _ = stack.run(Engine::new(Env::with_parent(&self.env), &self.file)
+                                .eval_statements(stack, finally))
                                 .await?;
-                            return Ok(catch_r);
+                            Ok(catch_r)
                         } else {
-                            return Err(err);
+                            Err(err)
                         }
                     }
                 }
                 // finally after normal
-                let _ = Interpreter::new(Env::with_parent(&self.env), &self.file)
-                    .eval_statements(finally)
+                let _ = stack.run(Engine::new(Env::with_parent(&self.env), &self.file)
+                    .eval_statements(stack, finally))
                     .await?;
                 Ok(None)
             }
@@ -318,7 +350,7 @@ impl Interpreter {
             StatementKind::RecordDecl { .. } => Ok(None),
 
             StatementKind::Throw(expr) => {
-                let v = self.eval_expr(expr).await?;
+                let v = stack.run(self.eval_expr(stack, expr)).await?;
                 Err(PawError::Runtime {
                     file: self.file.clone(),
                     code: "E6001",
@@ -333,8 +365,7 @@ impl Interpreter {
     }
 
     /// 计算表达式，返回一个可 await 的 Future
-    #[async_recursion]
-    pub async fn eval_expr(&mut self, expr: &Expr) -> Result<Value, PawError> {
+    pub async fn eval_expr(&mut self, stack: Stack<'_>, expr: &Expr) -> Result<Value, PawError> {
         match &expr.kind {
             ExprKind::LiteralInt(n) => Ok(Value::Int(*n)),
             ExprKind::LiteralLong(n) => Ok(Value::Long(*n)),
@@ -361,7 +392,7 @@ impl Interpreter {
 
             ExprKind::UnaryOp { op, expr: inner } => {
                 // 1. 先求值子表达式
-                let v = self.eval_expr(inner).await?;
+                let v = stack.run(self.eval_expr(stack, inner)).await?;
                 use crate::interpreter::value::ValueInner;
 
                 // 2. 匹配操作符，本分支保证每条路径都返回 Result<Value, PawError>
@@ -422,8 +453,8 @@ impl Interpreter {
 
             ExprKind::BinaryOp { op, left, right } => {
                 // 先 await 两边
-                let l = self.eval_expr(left).await?;
-                let r = self.eval_expr(right).await?;
+                let l = stack.run(self.eval_expr(stack, left)).await?;
+                let r = stack.run(self.eval_expr(stack, right)).await?;
                 use crate::ast::expr::BinaryOp::*;
                 use crate::interpreter::value::ValueInner::*;
 
@@ -553,7 +584,7 @@ impl Interpreter {
                 // 1. 先求值所有参数
                 let mut arg_vals = Vec::with_capacity(args.len());
                 for e in args {
-                    arg_vals.push(self.eval_expr(e).await?);
+                    arg_vals.push(stack.run(self.eval_expr(stack, e)).await?);
                 }
 
                 // 2. 查找函数
@@ -584,11 +615,11 @@ impl Interpreter {
                     } => {
                         if *is_async {
                             // —— 异步调用 ——
-                            let mut new_interp = Interpreter::new(Env::with_parent(fenv), &self.file);
+                            let mut new_interp = Engine::new(Env::with_parent(fenv), &self.file);
                             for (p, v) in params.iter().zip(arg_vals) {
                                 new_interp.env.define(p.name.clone(), v);
                             }
-                            if let Some(ret) = new_interp.eval_statements(body).await? {
+                            if let Some(ret) = stack.run(new_interp.eval_statements(stack, body)).await? {
                                 Ok(ret)
                             } else {
                                 Ok(Value::Null())
@@ -596,11 +627,11 @@ impl Interpreter {
                         } else {
                             // —— 同步调用 ——
                             let saved = self.env.clone();
-                            let mut child = Interpreter::new(Env::with_parent(fenv), &self.file);
+                            let mut child = Engine::new(Env::with_parent(fenv), &self.file);
                             for (p, v) in params.iter().zip(arg_vals) {
                                 child.env.define(p.name.clone(), v);
                             }
-                            let res = child.eval_statements(body).await?;
+                            let res = stack.run(child.eval_statements(stack, body)).await?;
                             self.env = saved;
                             Ok(res.unwrap_or(Value::Null()))
                         }
@@ -624,22 +655,22 @@ impl Interpreter {
                 expr: inner,
                 ty: _ty,
             } => {
-                let v = self.eval_expr(inner).await?;
+                let v = stack.run(self.eval_expr(stack, inner)).await?;
                 Ok(v)
             }
 
             ExprKind::ArrayLiteral(elems) => {
                 let mut items = Vec::with_capacity(elems.len());
                 for e in elems {
-                    items.push(self.eval_expr(e).await?);
+                    items.push(stack.run(self.eval_expr(stack, e)).await?);
                 }
                 Ok(Value::Array(items))
             }
 
             ExprKind::Index { array, index } => {
                 // 1. 先 Eval 两个子表达式
-                let arr_val = self.eval_expr(array).await?;
-                let idx_val = self.eval_expr(index).await?;
+                let arr_val = stack.run(self.eval_expr(stack, array)).await?;
+                let idx_val = stack.run(self.eval_expr(stack, index)).await?;
 
                 use crate::interpreter::value::ValueInner;
 
@@ -673,7 +704,7 @@ impl Interpreter {
             ExprKind::RecordInit { name: _, fields } => {
                 let mut map = AHashMap::new();
                 for (fname, fexpr) in fields {
-                    let v = self.eval_expr(fexpr).await?;
+                    let v = stack.run(self.eval_expr(stack, fexpr)).await?;
                     map.insert(fname.clone(), v);
                 }
                 Ok(Value::Record(map))
@@ -681,7 +712,7 @@ impl Interpreter {
 
             ExprKind::Await { expr: inner } => {
                 // 1. 先 eval 出一个 Value
-                let val = self.eval_expr(inner).await?;
+                let val = stack.run(self.eval_expr(stack, inner)).await?;
 
                 // 2. 解出内部的 ValueInner
                 use crate::interpreter::value::ValueInner;
@@ -703,7 +734,7 @@ impl Interpreter {
 
             ExprKind::FieldAccess { expr: inner, field } => {
                 // 1. 先 eval 出一个 Value
-                let obj_val = self.eval_expr(inner).await?;
+                let obj_val = stack.run(self.eval_expr(stack, inner)).await?;
 
                 // 2. 解出内部的 ValueInner
                 use crate::interpreter::value::ValueInner;
@@ -746,11 +777,11 @@ impl Interpreter {
                 args,
             } => {
                 // 1. Evaluate the receiver expression
-                let recv = self.eval_expr(receiver).await?;
+                let recv = stack.run(self.eval_expr(stack, receiver)).await?;
                 // 2. Evaluate all argument expressions
                 let mut arg_vals = Vec::with_capacity(args.len());
                 for a in args {
-                    arg_vals.push(self.eval_expr(a).await?);
+                    arg_vals.push(stack.run(self.eval_expr(stack, a)).await?);
                 }
                 // 3. Dispatch based on the receiver’s runtime type
                 match recv {
@@ -765,10 +796,10 @@ impl Interpreter {
                                     Ok(Value::String(s.as_str().to_uppercase()))
                                 }
                                 Method::ToLowercase if arg_vals.is_empty() => {
-                                     // 先把 &Arc<String> 解成 &str，然后 to_lowercase 得到 String
-                                     let lower: String = s.as_str().to_lowercase();
-                                     Ok(lower.into())
-                                 }
+                                    // 先把 &Arc<String> 解成 &str，然后 to_lowercase 得到 String
+                                    let lower: String = s.as_str().to_lowercase();
+                                    Ok(lower.into())
+                                }
                                 Method::Length if arg_vals.is_empty() => {
                                     Ok(Value::Int(s.as_str().chars().count() as i32))
                                 }
@@ -905,11 +936,11 @@ impl Interpreter {
                                     // Async function call
                                     if is_async {
                                         let mut new_i =
-                                            Interpreter::new(Env::with_parent(&fenv), &self.file);
+                                            Engine::new(Env::with_parent(&fenv), &self.file);
                                         for (p, v) in params.iter().zip(arg_vals.into_iter()) {
                                             new_i.env.define(p.name.clone(), v);
                                         }
-                                        if let Some(ret) = new_i.eval_statements(&body).await? {
+                                        if let Some(ret) = stack.run(new_i.eval_statements(stack, &body)).await? {
                                             Ok(ret)
                                         } else {
                                             Ok(Value::Null())
@@ -919,11 +950,11 @@ impl Interpreter {
                                     else {
                                         let saved = self.env.clone();
                                         let mut child =
-                                            Interpreter::new(Env::with_parent(&fenv), &self.file);
+                                            Engine::new(Env::with_parent(&fenv), &self.file);
                                         for (p, v) in params.iter().zip(arg_vals.into_iter()) {
                                             child.env.define(p.name.clone(), v);
                                         }
-                                        let res = child.eval_statements(&body).await?;
+                                        let res = stack.run(child.eval_statements(stack, &body)).await?;
                                         self.env = saved;
                                         Ok(res.unwrap_or(Value::Null()))
                                     }

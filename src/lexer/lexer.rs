@@ -88,6 +88,7 @@ impl Lexer {
             ':' => Token::new(TokenKind::Colon, start_line, start_col),
             '.' => Token::new(TokenKind::Dot, start_line, start_col),
             '?' => Token::new(TokenKind::Question, start_line, start_col),
+
             '=' => {
                 if self.peek_char() == Some('=') {
                     self.next_char();
