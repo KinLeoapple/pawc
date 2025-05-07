@@ -1,20 +1,20 @@
 // src/lexer/token.rs
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TokenKind {
+pub enum TokenKind<'a> {
     // Literals
     IntLiteral(i32),
     FloatLiteral(f32),
     DoubleLiteral(f64),
     LongLiteral(i64),
-    StringLiteral(String),
+    StringLiteral(&'a str),
     CharLiteral(char),
     BoolLiteral(bool),
     
     // Identifiers and keywords
-    Identifier(String),
-    Type(String),
-    Keyword(String),
+    Identifier(&'a str),
+    Type(&'a str),
+    Keyword(&'a str),
 
     // Operators
     Plus,
@@ -47,21 +47,21 @@ pub enum TokenKind {
     Colon,
     Dot,
 
-    Comment(String),
+    Comment(&'a str),
     Eof,
     Error(String),
 }
 
 /// 带源位置信息的 Token
 #[derive(Debug, Clone, PartialEq)]
-pub struct Token {
-    pub kind: TokenKind,
+pub struct Token<'a> {
+    pub kind: TokenKind<'a>,
     pub line: usize,
     pub column: usize,
 }
 
-impl Token {
-    pub fn new(kind: TokenKind, line: usize, column: usize) -> Self {
+impl<'a> Token<'a> {
+    pub fn new(kind: TokenKind<'a>, line: usize, column: usize) -> Self {
         Token { kind, line, column }
     }
 

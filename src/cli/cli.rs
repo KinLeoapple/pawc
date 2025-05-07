@@ -11,7 +11,7 @@ use std::fs;
 #[derive(Parser, Debug)]
 #[command(
     name = "pawc",
-    version = "0.1.9",
+    version = "0.2.0",
     author = "Kinleoapple",
     about = "🐾 PawScript interpreter — execute .paw scripts"
 )]

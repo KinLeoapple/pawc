@@ -5,87 +5,87 @@ use crate::ast::param::Param;
 
 /// 语句种类
 #[derive(Debug, Clone, PartialEq)]
-pub enum StatementKind {
+pub enum StatementKind<'a> {
     Let {
-        name: String,
-        ty: String,
-        value: Expr,
+        name: &'a str,
+        ty: &'a str,
+        value: Expr<'a>,
     },
-    Say(Expr),
+    Say(Expr<'a>),
     Assign {
-        name: String,
-        value: Expr,
+        name: &'a str,
+        value: Expr<'a>,
     },
     Ask {
-        name: String,
+        name: &'a str,
         ty: String,
-        prompt: String,
+        prompt: &'a str,
     },
-    AskPrompt(String),
-    Return(Option<Expr>),
+    AskPrompt(&'a str),
+    Return(Option<Expr<'a>>),
     Break,
     Continue,
-    Expr(Expr),
+    Expr(Expr<'a>),
 
     If {
-        condition: Expr,
-        body: Vec<Statement>,
-        else_branch: Option<Box<Statement>>,
+        condition: Expr<'a>,
+        body: Vec<Statement<'a>>,
+        else_branch: Option<Box<Statement<'a>>>,
     },
-    LoopForever(Vec<Statement>),
+    LoopForever(Vec<Statement<'a>>),
     LoopWhile {
-        condition: Expr,
-        body: Vec<Statement>,
+        condition: Expr<'a>,
+        body: Vec<Statement<'a>>,
     },
     LoopRange {
-        var: String,
-        start: Expr,
-        end: Expr,
-        body: Vec<Statement>,
+        var: &'a str,
+        start: Expr<'a>,
+        end: Expr<'a>,
+        body: Vec<Statement<'a>>,
     },
     LoopArray {
-        var: String,
-        array: Expr,
-        body: Vec<Statement>,
+        var: &'a str,
+        array: Expr<'a>,
+        body: Vec<Statement<'a>>,
     },
 
     FunDecl {
-        name: String,
+        name: &'a str,
         params: Vec<Param>,
         is_async: bool,
-        return_type: Option<String>,
-        body: Vec<Statement>,
+        return_type: Option<&'a str>,
+        body: Vec<Statement<'a>>,
     },
-    Block(Vec<Statement>),
+    Block(Vec<Statement<'a>>),
 
-    Throw(Expr),
+    Throw(Expr<'a>),
     TryCatchFinally {
-        body: Vec<Statement>,
-        err_name: String,
-        handler: Vec<Statement>,
-        finally: Vec<Statement>,
+        body: Vec<Statement<'a>>,
+        err_name: &'a str,
+        handler: Vec<Statement<'a>>,
+        finally: Vec<Statement<'a>>,
     },
 
     Import {
         module: Vec<String>,
-        alias: String,
+        alias: &'a str,
     },
     RecordDecl {
-        name: String,
+        name: &'a str,
         fields: Vec<Param>,
     },
 }
 
 /// 带位置的语句
 #[derive(Debug, Clone, PartialEq)]
-pub struct Statement {
-    pub kind: StatementKind,
+pub struct Statement<'a> {
+    pub kind: StatementKind<'a>,
     pub line: usize,
     pub col: usize,
 }
 
-impl Statement {
-    pub fn new(kind: StatementKind, line: usize, col: usize) -> Self {
+impl<'a> Statement<'a> {
+    pub fn new(kind: StatementKind<'a>, line: usize, col: usize) -> Self {
         Statement { kind, line, col }
     }
 }

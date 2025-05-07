@@ -3,74 +3,74 @@
 use crate::ast::method::Method;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ExprKind {
+pub enum ExprKind<'a> {
     LiteralInt(i32),
     LiteralLong(i64),
     LiteralFloat(f32),
     LiteralDouble(f64),
-    LiteralString(String),
+    LiteralString(&'a str),
     LiteralChar(char),
     LiteralBool(bool),
     LiteralNopaw,
 
-    Var(String),
+    Var(&'a str),
 
     UnaryOp {
-        op: String,
-        expr: Box<Expr>,
+        op: &'a str,
+        expr: Box<Expr<'a>>,
     },
 
     BinaryOp {
         op: BinaryOp,
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Box<Expr<'a>>,
+        right: Box<Expr<'a>>,
     },
 
     Call {
-        name: String,
-        args: Vec<Expr>,
+        name: &'a str,
+        args: Vec<Expr<'a>>,
     },
 
     MethodCall {
-        receiver: Box<Expr>,
+        receiver: Box<Expr<'a>>,
         method: Method,
-        args: Vec<Expr>,
+        args: Vec<Expr<'a>>,
     },
 
     Cast {
-        expr: Box<Expr>,
-        ty: String,
+        expr: Box<Expr<'a>>,
+        ty: &'a str,
     },
 
-    ArrayLiteral(Vec<Expr>),
+    ArrayLiteral(Vec<Expr<'a>>),
     Index {
-        array: Box<Expr>,
-        index: Box<Expr>,
+        array: Box<Expr<'a>>,
+        index: Box<Expr<'a>>,
     },
     FieldAccess {
-        expr: Box<Expr>,
-        field: String,
+        expr: Box<Expr<'a>>,
+        field: &'a str,
     },
     RecordInit {
-        name: String,
-        fields: Vec<(String, Expr)>,
+        name: &'a str,
+        fields: Vec<(&'a str, Expr<'a>)>,
     },
     Await {
-        expr: Box<Expr>,
+        expr: Box<Expr<'a>>,
     },
 }
 
 /// 带位置的表达式
 #[derive(Debug, Clone, PartialEq)]
-pub struct Expr {
-    pub kind: ExprKind,
+pub struct Expr<'a> {
+    pub kind: ExprKind<'a>,
     pub line: usize,
     pub col: usize,
 }
 
-impl Expr {
+impl<'a> Expr<'a> {
     /// 构造带位置的表达式
-    pub fn new(kind: ExprKind, line: usize, col: usize) -> Self {
+    pub fn new(kind: ExprKind<'a>, line: usize, col: usize) -> Self {
         Expr { kind, line, col }
     }
 }
