@@ -11,9 +11,12 @@ use crate::parser::parser::Parser;
 use crate::semantic::type_checker::TypeChecker;
 use crate::PROJECT_ROOT;
 use ahash::AHashMap;
+use once_cell::sync::Lazy;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use vuot::{Stack, StacklessFn};
+use crate::interpreter::globals::INTERFACES;
 
 pub struct Interpreter<'local> {
     pub engine: Engine,
@@ -40,7 +43,7 @@ impl Engine {
             file: file.to_string(),
         }
     }
-    
+
     /// 执行多条语句，遇到 return/throw 提前返回
     pub async fn eval_statements<'a>(
         &mut self,
@@ -59,7 +62,8 @@ impl Engine {
     pub async fn eval_statement<'a>(
         &mut self,
         stack: Stack<'a>,
-        stmt: &Statement) -> Result<Option<Value>, PawError> {
+        stmt: &Statement,
+    ) -> Result<Option<Value>, PawError> {
         match &stmt.kind {
             StatementKind::Let { name, ty: _, value } => {
                 let v = stack.run(self.eval_expr(stack, value)).await?;
@@ -157,9 +161,10 @@ impl Engine {
 
                 // 5. 执行模块
                 let module_env = Env::with_parent(&self.env);
-                let mut module_interp =
-                    Engine::new(module_env.clone(), &*path.to_string_lossy());
-                let _ = stack.run(module_interp.eval_statements(stack, &stmts)).await?;
+                let mut module_interp = Engine::new(module_env.clone(), &*path.to_string_lossy());
+                let _ = stack
+                    .run(module_interp.eval_statements(stack, &stmts))
+                    .await?;
 
                 // 6. 收集子环境所有顶层绑定，打包成 Module
                 let module_val = {
@@ -336,23 +341,65 @@ impl Engine {
                             ci.env.define(err_name.clone(), Value::String(message));
                             let catch_r = stack.run(ci.eval_statements(stack, handler)).await?;
                             // finally
-                            let _ = stack.run(Engine::new(Env::with_parent(&self.env), &self.file)
-                                .eval_statements(stack, finally))
+                            let _ = stack
+                                .run(
+                                    Engine::new(Env::with_parent(&self.env), &self.file)
+                                        .eval_statements(stack, finally),
+                                )
                                 .await?;
                             Ok(catch_r)
                         } else {
                             Err(err)
-                        }
+                        };
                     }
                 }
                 // finally after normal
-                let _ = stack.run(Engine::new(Env::with_parent(&self.env), &self.file)
-                    .eval_statements(stack, finally))
+                let _ = stack
+                    .run(
+                        Engine::new(Env::with_parent(&self.env), &self.file)
+                            .eval_statements(stack, finally),
+                    )
                     .await?;
                 Ok(None)
             }
 
-            StatementKind::RecordDecl { .. } => Ok(None),
+            StatementKind::RecordDecl { name, implements, fields } => {
+                let mut map: AHashMap<String, Value> = AHashMap::new();
+                for field in fields {
+                    map.insert(field.name.clone(), Value::Null());
+                }
+                let record_val = Value::Record(map);
+                self.env.define(
+                    name.clone(),
+                    record_val
+                );
+                Ok(None)
+            }
+            StatementKind::InterfaceDecl { name, methods, .. } => {
+                let mut guard = INTERFACES.write().unwrap();
+                let method_table = guard.entry(name.clone()).or_insert_with(AHashMap::new);
+                for method in methods {
+                    if let StatementKind::FunDecl { name: mname, .. } = &method.kind {
+                        let line = stmt.line;
+                        let col  = stmt.col;
+                        method_table.insert(
+                            mname.clone(),
+                            Box::new(move |_v| {
+                                Err(PawError::Runtime {
+                                    message: "Method not implemented".into(),
+                                    line,
+                                    column: col,
+                                    file: "".into(),
+                                    code: "E5001".into(),
+                                    snippet: None,
+                                    hint: Some("Implement this method".into()),
+                                })
+                            }),
+                        );
+                    }
+                }
+                Ok(None)
+            }
 
             StatementKind::Throw(expr) => {
                 let v = stack.run(self.eval_expr(stack, expr)).await?;
@@ -593,20 +640,23 @@ impl Engine {
                 }
 
                 // 2. 查找函数
-                let func_val = self.env.get(name).ok_or_else(|| PawError::UndefinedVariable {
-                    file: self.file.clone(),
-                    code: "E4001",
-                    name: name.clone(),
-                    line: expr.line,
-                    column: expr.col,
-                    snippet: None,
-                    hint: Some("Did you declare this function before use?".into()),
-                })?;
+                let func_val = self
+                    .env
+                    .get(name)
+                    .ok_or_else(|| PawError::UndefinedVariable {
+                        file: self.file.clone(),
+                        code: "E4001",
+                        name: name.clone(),
+                        line: expr.line,
+                        column: expr.col,
+                        snippet: None,
+                        hint: Some("Did you declare this function before use?".into()),
+                    })?;
 
                 // 3. 解出内部 ValueInner
                 use crate::interpreter::value::{Value, ValueInner};
                 let inner_arc = match func_val {
-                    Value(inner) => inner,         // 解出 Arc<ValueInner>
+                    Value(inner) => inner, // 解出 Arc<ValueInner>
                 };
 
                 // 4. 匹配 Function 分支
@@ -624,7 +674,9 @@ impl Engine {
                             for (p, v) in params.iter().zip(arg_vals) {
                                 new_interp.env.define(p.name.clone(), v);
                             }
-                            if let Some(ret) = stack.run(new_interp.eval_statements(stack, body)).await? {
+                            if let Some(ret) =
+                                stack.run(new_interp.eval_statements(stack, body)).await?
+                            {
                                 Ok(ret)
                             } else {
                                 Ok(Value::Null())
@@ -642,7 +694,7 @@ impl Engine {
                         }
                     }
 
-                    // —— 不是函数，直接报错 —— 
+                    // —— 不是函数，直接报错 ——
                     _ => Err(PawError::Runtime {
                         file: self.file.clone(),
                         code: "E4002".into(),
@@ -654,7 +706,6 @@ impl Engine {
                     }),
                 }
             }
-
 
             ExprKind::Cast {
                 expr: inner,
@@ -685,9 +736,7 @@ impl Engine {
                     (ValueInner::Array(v_arc), ValueInner::Int(i)) => {
                         // v_arc: &Arc<Vec<Value>>
                         let vec = &**v_arc;
-                        vec.get(*i as usize)
-                            .cloned()
-                            .unwrap_or(Value::Null())
+                        vec.get(*i as usize).cloned().unwrap_or(Value::Null())
                     }
                     // 其余情况，都抛运行时错误
                     _ => {
@@ -945,7 +994,9 @@ impl Engine {
                                         for (p, v) in params.iter().zip(arg_vals.into_iter()) {
                                             new_i.env.define(p.name.clone(), v);
                                         }
-                                        if let Some(ret) = stack.run(new_i.eval_statements(stack, &body)).await? {
+                                        if let Some(ret) =
+                                            stack.run(new_i.eval_statements(stack, &body)).await?
+                                        {
                                             Ok(ret)
                                         } else {
                                             Ok(Value::Null())
@@ -959,7 +1010,8 @@ impl Engine {
                                         for (p, v) in params.iter().zip(arg_vals.into_iter()) {
                                             child.env.define(p.name.clone(), v);
                                         }
-                                        let res = stack.run(child.eval_statements(stack, &body)).await?;
+                                        let res =
+                                            stack.run(child.eval_statements(stack, &body)).await?;
                                         self.env = saved;
                                         Ok(res.unwrap_or(Value::Null()))
                                     }
