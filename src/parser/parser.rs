@@ -5,7 +5,6 @@ use crate::ast::method::Method;
 use crate::ast::param::Param;
 use crate::ast::statement::{Statement, StatementKind};
 use crate::error::error::PawError;
-use crate::lexer::lexer::Lexer;
 use crate::lexer::token::{Token, TokenKind};
 
 pub struct Parser {
@@ -166,6 +165,9 @@ impl Parser {
         }
         let (line, col) = self.wrap_position();
 
+        if self.peek_keyword("tail") {
+            return self.parse_interface_decl();
+        }
         if self.peek_keyword("record") {
             return self.parse_record_decl();
         }
@@ -220,8 +222,6 @@ impl Parser {
         Ok(Statement::new(StatementKind::Expr(expr), line, col))
     }
 
-    // 以下方法补全于 `impl Parser` 中
-
     /// 解析 `fun` 或 `async fun` 声明
     fn parse_fun_statement(&mut self, is_async: bool) -> Result<Statement, PawError> {
         let (line, col) = self.wrap_position();
@@ -253,11 +253,49 @@ impl Parser {
         ))
     }
 
-    /// 解析 `record Name { field: Type, ... }` 声明
+    /// 解析 `tail Name { methods }` 接口声明
+    fn parse_interface_decl(&mut self) -> Result<Statement, PawError> {
+        let (line, col) = self.wrap_position();
+        self.expect_keyword("tail")?;
+        let name = self.expect_identifier()?;
+        // 解析方法列表
+        self.expect_token(TokenKind::LBrace)?;
+        let mut methods = Vec::new();
+        while self.peek_keyword("async") || self.peek_keyword("fun") {
+            let is_async = self.peek_keyword("async");
+            methods.push(self.parse_fun_statement(is_async)?);
+        }
+        self.expect_token(TokenKind::RBrace)?;
+        Ok(Statement::new(
+            StatementKind::InterfaceDecl { name, implements: Vec::new(), methods },
+            line, col,
+        ))
+    }
+
+    /// 解析 `record Name(Impl1, Impl2) { fields }`
     fn parse_record_decl(&mut self) -> Result<Statement, PawError> {
         let (line, col) = self.wrap_position();
         self.expect_keyword("record")?;
         let name = self.expect_identifier()?;
+        // 实现列表
+        let mut implements = Vec::new();
+        if self.peek_token(TokenKind::LParen) {
+            self.next(); // consume '('
+            loop {
+                if let Some(TokenKind::Identifier(intf)) = self.peek_kind().cloned() {
+                    implements.push(intf.clone());
+                    self.next();
+                } else {
+                    return Err(PawError::Syntax { file: self.file.clone(), code: "E1001", message: "Expected interface name".into(), line, column: col, snippet: self.snippet(line), hint: None });
+                }
+                if self.peek_token(TokenKind::Comma) {
+                    self.next();
+                    continue;
+                }
+                break;
+            }
+            self.expect_token(TokenKind::RParen)?;
+        }
         self.expect_token(TokenKind::LBrace)?;
         let mut fields = Vec::new();
         while !self.peek_token(TokenKind::RBrace) {
@@ -271,7 +309,7 @@ impl Parser {
         }
         self.expect_token(TokenKind::RBrace)?;
         Ok(Statement::new(
-            StatementKind::RecordDecl { name, fields },
+            StatementKind::RecordDecl { name, implements, fields },
             line,
             col,
         ))
@@ -290,9 +328,9 @@ impl Parser {
             self.expect_keyword("ask")?;
             let prompt = match self.next() {
                 Some(Token {
-                    kind: TokenKind::StringLiteral(s),
-                    ..
-                }) => s,
+                         kind: TokenKind::StringLiteral(s),
+                         ..
+                     }) => s,
                 tok => {
                     return Err(PawError::Syntax {
                         file: self.file.clone(),
@@ -348,9 +386,9 @@ impl Parser {
         self.expect_keyword("ask")?;
         let prompt = match self.next() {
             Some(Token {
-                kind: TokenKind::StringLiteral(s),
-                ..
-            }) => s,
+                     kind: TokenKind::StringLiteral(s),
+                     ..
+                 }) => s,
             tok => {
                 return Err(PawError::Syntax {
                     file: self.file.clone(),
@@ -447,8 +485,7 @@ impl Parser {
         let (line, col) = self.wrap_position();
         self.expect_keyword("loop")?;
         // forever
-        if self.peek_keyword("forever") {
-            self.next();
+        if self.peek_token(TokenKind::LBrace) {
             let body = self.parse_block()?;
             return Ok(Statement::new(StatementKind::LoopForever(body), line, col));
         }
@@ -579,7 +616,7 @@ impl Parser {
     /// 字面量、变量、调用、索引、RecordInit、属性访问…
     fn parse_primary(&mut self) -> Result<Expr, PawError> {
         let (line, col) = self.wrap_position();
-        
+
         // nopaw 字面量
         if self.peek_keyword("nopaw") {
             self.next();
@@ -768,13 +805,13 @@ impl Parser {
     fn parse_type(&mut self) -> Result<String, PawError> {
         let mut ty = match self.next() {
             Some(Token {
-                kind: TokenKind::Type(s),
-                ..
-            })
+                     kind: TokenKind::Type(s),
+                     ..
+                 })
             | Some(Token {
-                kind: TokenKind::Identifier(s),
-                ..
-            }) => s,
+                       kind: TokenKind::Identifier(s),
+                       ..
+                   }) => s,
             other => {
                 return Err(PawError::Syntax {
                     file: self.file.clone(),

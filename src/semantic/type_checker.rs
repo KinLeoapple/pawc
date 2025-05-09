@@ -2,8 +2,9 @@ use crate::ast::expr::{Expr, ExprKind};
 use crate::ast::param::Param;
 use crate::ast::statement::{Statement, StatementKind};
 use crate::error::error::PawError;
+use crate::semantic::interface::InterfaceSig;
 use crate::semantic::scope::{PawType, Scope};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// 静态类型检查器
 pub struct TypeChecker {
@@ -11,6 +12,8 @@ pub struct TypeChecker {
     pub throwing_functions: HashSet<String>,
     current_fn: Option<String>,
     current_file: String,
+    pub interfaces: HashMap<String, InterfaceSig>,
+    pub impls: HashMap<String, Vec<String>>,
 }
 
 impl TypeChecker {
@@ -20,6 +23,8 @@ impl TypeChecker {
             throwing_functions: HashSet::new(),
             current_fn: None,
             current_file: filename.into(),
+            interfaces: HashMap::new(),
+            impls: HashMap::new(),
         }
     }
 
@@ -29,6 +34,8 @@ impl TypeChecker {
             throwing_functions: HashSet::new(),
             current_fn: None,
             current_file: filename.into(),
+            interfaces: HashMap::new(),
+            impls: HashMap::new(),
         }
     }
 
@@ -454,8 +461,70 @@ impl TypeChecker {
                     let _ = self.check_expr(e)?;
                 }
             }
-            StatementKind::RecordDecl { name, fields, .. } => {
-                // 把字段列表转换成 Vec<(String, PawType)>
+            StatementKind::InterfaceDecl {
+                name,
+                implements: _,
+                methods,
+            } => {
+                if self.interfaces.contains_key(name) {
+                    return Err(PawError::Type {
+                        file: self.current_file.clone(),
+                        code: "E4006",
+                        message: format!("Interface '{}' already defined", name),
+                        line: stmt.line,
+                        column: stmt.col,
+                        snippet: None,
+                        hint: None,
+                    });
+                }
+                let mut sig = InterfaceSig {
+                    method_sigs: HashMap::new(),
+                };
+                for m in methods {
+                    if let StatementKind::FunDecl {
+                        name: mname,
+                        params,
+                        return_type,
+                        is_async,
+                        ..
+                    } = &m.kind
+                    {
+                        let param_tys = params.iter().map(|p| PawType::from_str(&p.ty)).collect();
+                        let ret_ty = return_type
+                            .as_deref()
+                            .map(PawType::from_str)
+                            .unwrap_or(PawType::Void);
+                        sig.method_sigs
+                            .insert(mname.clone(), (param_tys, ret_ty, *is_async));
+                    }
+                }
+                self.interfaces.insert(name.clone(), sig);
+            }
+            StatementKind::RecordDecl {
+                name,
+                implements,
+                fields,
+            } => {
+                // 检查接口是否存在
+                for intf in implements {
+                    if !self.interfaces.contains_key(intf) {
+                        return Err(PawError::Type {
+                            file: self.current_file.clone(),
+                            code: "E4007",
+                            message: format!(
+                                "Type '{}' does not implement interface '{}'",
+                                name, intf
+                            ),
+                            line: stmt.line,
+                            column: stmt.col,
+                            snippet: None,
+                            hint: None,
+                        });
+                    }
+                }
+                // 记录实现关系
+                self.impls.insert(name.clone(), implements.clone());
+                // 注入 record 类型
                 let field_types: Vec<(String, PawType)> = fields
                     .iter()
                     .map(|p| (p.name.clone(), PawType::from_str(&p.ty)))

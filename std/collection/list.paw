@@ -1,0 +1,16 @@
+record ListNode {
+    value: Any?,
+    next: Any?,
+}
+
+fun empty_list(): Any? {
+  nopaw
+}
+
+fun prepend(x: Any?, lst: Any?): Any? {
+  record list_node { value: x, next: lst }
+}
+
+fun is_empty(lst: Any?): Bool {
+  lst == nopaw
+}

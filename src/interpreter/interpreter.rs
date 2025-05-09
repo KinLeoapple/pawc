@@ -9,6 +9,7 @@ use crate::interpreter::value::{Value, ValueInner};
 use crate::lexer::lexer::Lexer;
 use crate::parser::parser::Parser;
 use crate::semantic::type_checker::TypeChecker;
+use crate::PROJECT_ROOT;
 use ahash::AHashMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ use vuot::{Stack, StacklessFn};
 
 pub struct Interpreter<'local> {
     pub engine: Engine,
-    pub statements: &'local [Statement]
+    pub statements: &'local [Statement],
 }
 
 impl<'a> StacklessFn<'a, Result<Option<Value>, PawError>> for Interpreter<'_> {
@@ -39,7 +40,7 @@ impl Engine {
             file: file.to_string(),
         }
     }
-
+    
     /// 执行多条语句，遇到 return/throw 提前返回
     pub async fn eval_statements<'a>(
         &mut self,
@@ -108,7 +109,11 @@ impl Engine {
 
             StatementKind::Import { module, alias } => {
                 // 1. 拼出文件路径
-                let base_path = Path::new(&self.file);
+                let base_path = if module[0] == "std" {
+                    Path::new(PROJECT_ROOT)
+                } else {
+                    Path::new(&self.file)
+                };
                 let mut path = PathBuf::new();
                 path.push(base_path.parent().unwrap_or(Path::new(".")));
                 for seg in module {

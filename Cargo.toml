@@ -8,6 +8,11 @@ repository = "https://github.com/KinLeoapple/pawc"
 homepage = "https://github.com/KinLeoapple/pawc"
 keywords = ["pawscript", "interpreter"]
 edition = "2021"
+include = [
+    "Cargo.toml",
+    "src/**",
+    "Std/**",
+]
 
 [[bin]]
 name = "pawc"
@@ -29,3 +34,4 @@ parking_lot = "0.12"
 num_cpus = "1.16.0"
 once_cell = "1.21.3"
 vuot ="0.0.1"
+include_dir = "0.7"

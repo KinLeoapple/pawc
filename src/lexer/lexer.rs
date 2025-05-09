@@ -1,36 +1,30 @@
 // src/lexer/lexer.rs
 use crate::lexer::token::{Token, TokenKind};
 
-pub struct Lexer<'a> {
-    input: &'a str,
+pub struct Lexer {
     src: Vec<char>,
     pos: usize,
-    byte_pos: usize,
     line: usize,
     column: usize,
 }
 
-impl<'a> Lexer<'a> {
-    pub fn new(input: &'a str) -> Self {
+impl Lexer {
+    pub fn new(input: &str) -> Self {
         Lexer {
-            input,
             src: input.chars().collect(),
             pos: 0,
-            byte_pos: 0,
             line: 1,
             column: 1,
         }
     }
 
-    pub fn tokenize(mut self) -> Vec<Token<'a>> {
+    pub fn tokenize(mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
         loop {
             let tok = self.next_token();
             let is_eof = matches!(tok.kind, TokenKind::Eof);
             tokens.push(tok);
-            if is_eof {
-                break;
-            }
+            if is_eof { break; }
         }
         tokens
     }
@@ -38,7 +32,6 @@ impl<'a> Lexer<'a> {
     fn next_char(&mut self) -> Option<char> {
         if let Some(&c) = self.src.get(self.pos) {
             self.pos += 1;
-            self.byte_pos += c.len_utf8();
             if c == '\n' {
                 self.line += 1;
                 self.column = 1;
@@ -65,11 +58,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn next_token(&mut self) -> Token<'a> {
+    pub fn next_token(&mut self) -> Token {
         self.skip_whitespace();
         let start_line = self.line;
         let start_col = self.column;
-        let byte_start = self.byte_pos;
         let c = match self.next_char() {
             Some(ch) => ch,
             None => return Token::new(TokenKind::Eof, start_line, start_col),
@@ -96,6 +88,7 @@ impl<'a> Lexer<'a> {
             ':' => Token::new(TokenKind::Colon, start_line, start_col),
             '.' => Token::new(TokenKind::Dot, start_line, start_col),
             '?' => Token::new(TokenKind::Question, start_line, start_col),
+
             '=' => {
                 if self.peek_char() == Some('=') {
                     self.next_char();
@@ -139,20 +132,15 @@ impl<'a> Lexer<'a> {
             '#' => {
                 // 跳过注释到行尾
                 while let Some(nc) = self.peek_char() {
-                    if nc == '\n' {
-                        break;
-                    }
+                    if nc == '\n' { break; }
                     self.next_char();
                 }
                 return self.next_token();
             }
             '"' => {
                 let mut s = String::new();
-                let byte_start = self.byte_pos;
                 while let Some(nc) = self.next_char() {
-                    if nc == '"' {
-                        break;
-                    }
+                    if nc == '"' { break; }
                     if nc == '\\' {
                         if let Some(esc) = self.next_char() {
                             match esc {
@@ -161,10 +149,7 @@ impl<'a> Lexer<'a> {
                                 'r' => s.push('\r'),
                                 '\\' => s.push('\\'),
                                 '"' => s.push('"'),
-                                other => {
-                                    s.push('\\');
-                                    s.push(other);
-                                }
+                                other => { s.push('\\'); s.push(other); }
                             }
                             continue;
                         }
@@ -173,9 +158,7 @@ impl<'a> Lexer<'a> {
                     }
                     s.push(nc);
                 }
-                let byte_end = self.byte_pos;
-                let slice = &self.input[byte_start..byte_end];
-                Token::new(TokenKind::StringLiteral(slice), start_line, start_col)
+                Token::new(TokenKind::StringLiteral(s), start_line, start_col)
             }
             '\'' => {
                 let ch = self.next_char().unwrap_or('\0');
@@ -184,67 +167,38 @@ impl<'a> Lexer<'a> {
             }
             c if c.is_ascii_digit() => self.lex_number(c, start_line, start_col),
             c if c.is_alphabetic() || c == '_' => {
-                let start = byte_start;
                 let mut ident = c.to_string();
                 while let Some(nc) = self.peek_char() {
                     if nc.is_alphanumeric() || nc == '_' {
                         ident.push(self.next_char().unwrap());
-                    } else {
-                        break;
-                    }
+                    } else { break; }
                 }
-                let end = self.byte_pos;
-                let slice = &self.input[start..end];
-                let kind = match slice {
+                let kind = match ident.as_str() {
                     "true" => TokenKind::BoolLiteral(true),
                     "false" => TokenKind::BoolLiteral(false),
                     // 关键字
-                    kw @ "import"
-                    | kw @ "fun"
-                    | kw @ "async"
-                    | kw @ "await"
-                    | kw @ "let"
-                    | kw @ "say"
-                    | kw @ "ask"
-                    | kw @ "as"
-                    | kw @ "if"
-                    | kw @ "else"
-                    | kw @ "loop"
-                    | kw @ "forever"
-                    | kw @ "return"
-                    | kw @ "break"
-                    | kw @ "continue"
-                    | kw @ "in"
-                    | kw @ "bark"
-                    | kw @ "sniff"
-                    | kw @ "snatch"
-                    | kw @ "lastly"
-                    | kw @ "nopaw"
-                    | kw @ "record" => TokenKind::Keyword(kw.into()),
+                    kw @ "import" | kw @ "fun" | kw @ "async" | kw @ "await" |
+                    kw @ "let" | kw @ "say" | kw @ "ask" | kw @ "as" |
+                    kw @ "if" | kw @ "else" | kw @ "loop" |
+                    kw @ "return" | kw @ "break" | kw @ "continue" |
+                    kw @ "in" | kw @ "bark" | kw @ "sniff" |
+                    kw @ "snatch" | kw @ "lastly" | kw @ "nopaw" | kw @ "record" |
+                    kw @ "tail" => {
+                        TokenKind::Keyword(kw.into())
+                    }
                     // 类型
-                    ty @ "Int"
-                    | ty @ "Long"
-                    | ty @ "Float"
-                    | ty @ "Double"
-                    | ty @ "String"
-                    | ty @ "Char"
-                    | ty @ "Bool"
-                    | ty @ "Any"
-                    | ty @ "Void"
-                    | ty @ "Array" => TokenKind::Type(ty.into()),
-                    _ => TokenKind::Identifier(slice),
+                    ty @ "Int" | ty @ "Long" | ty @ "Float" | ty @ "Double" |
+                    ty @ "String" | ty @ "Char" | ty @ "Bool" | ty @ "Any" |
+                    ty @ "Void" | ty @ "Array" => TokenKind::Type(ty.into()),
+                    _ => TokenKind::Identifier(ident.clone()),
                 };
                 Token::new(kind, start_line, start_col)
             }
-            _ => Token::new(
-                TokenKind::Error(format!("Unexpected character: {}", c).into()),
-                start_line,
-                start_col,
-            ),
+            _ => Token::new(TokenKind::Error(format!("Unexpected character: {}", c)), start_line, start_col),
         }
     }
 
-    fn lex_number(&mut self, first: char, line: usize, col: usize) -> Token<'a> {
+    fn lex_number(&mut self, first: char, line: usize, col: usize) -> Token {
         let mut num = first.to_string();
 
         // 整数部分
@@ -275,36 +229,46 @@ impl<'a> Lexer<'a> {
                     'f' | 'F' => {
                         // FloatLiteral(f32)
                         self.next_char();
-                        return match num.parse::<f32>() {
-                            Ok(f) => Token::new(TokenKind::FloatLiteral(f), line, col),
-                            Err(_) => Token::new(
-                                TokenKind::Error("Invalid float32 literal".into()),
-                                line,
-                                col,
-                            ),
-                        };
+                        match num.parse::<f32>() {
+                            Ok(f) => return Token::new(TokenKind::FloatLiteral(f), line, col),
+                            Err(_) => {
+                                return Token::new(
+                                    TokenKind::Error("Invalid float32 literal".into()),
+                                    line,
+                                    col,
+                                )
+                            }
+                        }
                     }
                     'd' | 'D' => {
                         // DoubleLiteral(f64)
                         self.next_char();
-                        return match num.parse::<f64>() {
-                            Ok(d) => Token::new(TokenKind::DoubleLiteral(d), line, col),
-                            Err(_) => Token::new(
-                                TokenKind::Error("Invalid float64 literal".into()),
-                                line,
-                                col,
-                            ),
-                        };
+                        match num.parse::<f64>() {
+                            Ok(d) => return Token::new(TokenKind::DoubleLiteral(d), line, col),
+                            Err(_) => {
+                                return Token::new(
+                                    TokenKind::Error("Invalid float64 literal".into()),
+                                    line,
+                                    col,
+                                )
+                            }
+                        }
                     }
                     _ => {}
                 }
             }
 
             // 无后缀，默认 DoubleLiteral
-            return match num.parse::<f64>() {
-                Ok(d) => Token::new(TokenKind::DoubleLiteral(d), line, col),
-                Err(_) => Token::new(TokenKind::Error("Invalid float literal".into()), line, col),
-            };
+            match num.parse::<f64>() {
+                Ok(d) => return Token::new(TokenKind::DoubleLiteral(d), line, col),
+                Err(_) => {
+                    return Token::new(
+                        TokenKind::Error("Invalid float literal".into()),
+                        line,
+                        col,
+                    )
+                }
+            }
         }
 
         // 长整型后缀 L 或 l

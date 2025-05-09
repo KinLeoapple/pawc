@@ -139,7 +139,7 @@ if cond {
   …
 }
 
-loop forever { … }
+loop { … }
 loop cond { … }
 loop i in start..end { … }
 loop item in array { … }
