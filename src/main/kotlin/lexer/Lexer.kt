@@ -33,7 +33,9 @@ class Lexer(private val source: String) {
         "lastly" to TokenKind.LASTLY,
         "break"    to TokenKind.BREAK,
         "continue" to TokenKind.CONTINUE,
-        "nopaw" to TokenKind.NOPAW
+        "nopaw" to TokenKind.NOPAW,
+        "match" to TokenKind.MATCH,
+        "_"     to TokenKind.UNDERSCORE,
     )
 
     /**

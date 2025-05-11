@@ -6,6 +6,7 @@ import org.pawscript.ast.Expr
 import org.pawscript.ast.MethodSig
 import org.pawscript.ast.Node
 import org.pawscript.ast.Param
+import org.pawscript.ast.Pattern
 import org.pawscript.ast.Statement
 import org.pawscript.ast.TemplatePart
 import org.pawscript.ast.Type
@@ -322,7 +323,12 @@ class Parser(private val tokens: List<Token>) {
 
     // --- Expression Parsing ---
 
-    private fun parseExpression(): Expr = parseOr()
+    private fun parseExpression(): Expr {
+        return when {
+            match(TokenKind.MATCH) -> parseMatch()
+            else -> parseOr()
+        }
+    }
 
     private fun parseOr(): Expr {
         var e = parseAnd()
@@ -330,6 +336,63 @@ class Parser(private val tokens: List<Token>) {
             e = Expr.Binary(e, BinaryOp.OR, parseAnd())
         }
         return e
+    }
+
+    @Throws(ParseError::class)
+    private fun parseMatch(): Expr {
+        // 已 match MATCH
+        val scrutinee = parseExpression()
+        consume(TokenKind.LBRACE, "Expected '{' after match scrutinee")
+
+        val cases = mutableListOf<Expr.Case>()
+        do {
+            val pat = parsePattern()
+            consume(TokenKind.ARROW, "Expected '->' after pattern")
+
+            // 如果下一个是 LBRACE，则把分支体当成 BlockExpr
+            val resultExpr = if (check(TokenKind.LBRACE)) {
+                // parseBlock 返回 List<Statement>, 但我们需要 BlockExpr
+                val stmts = parseBlock()
+                Expr.BlockExpr(stmts)
+            } else {
+                // 单表达式分支
+                parseExpression()
+            }
+            cases += Expr.Case(pat, resultExpr)
+        } while (match(TokenKind.COMMA))
+
+        consume(TokenKind.RBRACE, "Expected '}' after match cases")
+        return Expr.Match(scrutinee, cases)
+    }
+
+    /** 解析 Pattern */
+    @Throws(ParseError::class)
+    private fun parsePattern(): Pattern {
+        return when {
+            match(TokenKind.UNDERSCORE) -> Pattern.Wildcard
+            match(TokenKind.INT_LITERAL) -> Pattern.Literal(previous().lexeme.toLong())
+            match(TokenKind.FLOAT_LITERAL) -> Pattern.Literal(previous().lexeme.toDouble())
+            match(TokenKind.STRING_LITERAL) -> Pattern.Literal(previous().lexeme)
+            match(TokenKind.CHAR_LITERAL) -> Pattern.Literal(previous().lexeme.first())
+            match(TokenKind.IDENTIFIER) -> {
+                val name = previous().lexeme
+                if (match(TokenKind.LPAREN)) {
+                    // 构造器模式：Name(p1,p2,…)
+                    val args = mutableListOf<Pattern>()
+                    if (!check(TokenKind.RPAREN)) {
+                        do {
+                            args += parsePattern()
+                        } while (match(TokenKind.COMMA))
+                    }
+                    consume(TokenKind.RPAREN, "Expected ')' after constructor pattern")
+                    Pattern.Constructor(name, args)
+                } else {
+                    // 绑定变量
+                    Pattern.Var(name)
+                }
+            }
+            else -> throw ParseError("Unexpected token in pattern: ${peek().kind}", peek().line, peek().col)
+        }
     }
 
     private fun parseAnd(): Expr {
@@ -478,12 +541,15 @@ class Parser(private val tokens: List<Token>) {
         throw ParseError("Unexpected token '${peek().kind}'", peek().line, peek().col)
     }
 
+    @Throws(ParseError::class)
     private fun parsePostfix(expr: Expr): Expr {
         var result = expr
+
         loop@ while (true) {
+            // —— 1. 泛型函数调用：id<Int>(…) ——
             if (result is Expr.Variable && check(TokenKind.LT)) {
-                // 1. 吞 '<'
-                advance()
+                // 1.1 读取所有类型实参
+                advance() // consume '<'
                 val typeArgs = mutableListOf<Type>()
                 if (!check(TokenKind.GT)) {
                     do {
@@ -491,51 +557,58 @@ class Parser(private val tokens: List<Token>) {
                     } while (match(TokenKind.COMMA))
                 }
                 consume(TokenKind.GT, "Expected '>' after generic type arguments")
-                // 用一个临时标志把它保存在 result 里
+                // 1.2 构造临时 Call 节点，先不带位置/命名参数
                 result = Expr.Call(
-                    callee = result.name,
-                    typeArgs = typeArgs,
+                    callee     = result.name,
+                    typeArgs   = typeArgs,
                     positional = emptyList(),
-                    named = emptyMap()
+                    named      = emptyMap()
                 )
                 continue@loop
             }
+
+            // —— 2. 模块成员访问或调用：u.foo or u.foo(…) ——
+            if (result is Expr.Variable && match(TokenKind.DOT)) {
+                val alias  = result.name
+                val member = consume(TokenKind.IDENTIFIER, "Expected member name after '$alias.'").lexeme
+
+                if (match(TokenKind.LPAREN)) {
+                    // 2.1 模块方法调用
+                    val (positional, named) = parseArguments()
+                    result = Expr.Call(
+                        callee     = "$alias.$member",
+                        typeArgs   = emptyList(),
+                        positional = positional,
+                        named      = named
+                    )
+                } else {
+                    // 2.2 模块属性访问
+                    result = Expr.ModuleAccess(alias, member)
+                }
+                continue@loop
+            }
+
             when {
-                // 字段访问 .field
+                // —— 3. 普通字段访问 .field ——
                 match(TokenKind.DOT) -> {
                     val field = consume(TokenKind.IDENTIFIER, "Expected field name after '.'").lexeme
                     result = Expr.FieldAccess(result, field)
                 }
 
-                // 括号调用
+                // —— 4. 括号调用 ——
                 match(TokenKind.LPAREN) -> {
-                    val positional = mutableListOf<Expr>()
-                    val named = mutableMapOf<String, Expr>()
-                    if (!check(TokenKind.RPAREN)) {
-                        do {
-                            if (check(TokenKind.IDENTIFIER) && peekNext().kind == TokenKind.COLON) {
-                                val argName = advance().lexeme
-                                advance() // 读取 ':'
-                                named[argName] = parseExpression()
-                            } else {
-                                positional += parseExpression()
-                            }
-                        } while (match(TokenKind.COMMA))
-                    }
-                    consume(TokenKind.RPAREN, "Expected ')' after arguments")
-
+                    val (positional, named) = parseArguments()
                     result = when (result) {
-                        // 方法调用：MethodCall 不带 typeArgs
+                        // 4.1 方法调用：obj.method(...)
                         is Expr.FieldAccess ->
                             Expr.MethodCall(result.target, result.field, positional, named)
 
-                        // 顶层函数调用：如果之前 parseCall 分支已经把 typeArgs 放进 result
-                        // 那么这时 result 就是一个 Expr.Call(callee, typeArgs, [], {})
-                        // 我们只要把 positional/named “贴”上去即可
+                        // 4.2 泛型或普通函数调用已经在上面被处理成 Expr.Call
                         is Expr.Call ->
+                            // 先前若已读过 typeArgs，则这里把参数加上
                             result.copy(positional = positional, named = named)
 
-                        // 如果之前没读过泛型实参，就正常走空 typeArgs
+                        // 4.3 普通顶层函数调用：foo(...)
                         is Expr.Variable ->
                             Expr.Call(result.name, emptyList(), positional, named)
 
@@ -550,7 +623,28 @@ class Parser(private val tokens: List<Token>) {
                 else -> break@loop
             }
         }
+
         return result
+    }
+
+    /** 解析一对圆括号中的位置参数和命名参数 */
+    @Throws(ParseError::class)
+    private fun parseArguments(): Pair<List<Expr>, Map<String,Expr>> {
+        val positional = mutableListOf<Expr>()
+        val named      = mutableMapOf<String,Expr>()
+        if (!check(TokenKind.RPAREN)) {
+            do {
+                if (check(TokenKind.IDENTIFIER) && peekNext().kind == TokenKind.COLON) {
+                    val name = advance().lexeme
+                    advance() // consume ':'
+                    named[name] = parseExpression()
+                } else {
+                    positional += parseExpression()
+                }
+            } while (match(TokenKind.COMMA))
+        }
+        consume(TokenKind.RPAREN, "Expected ')' after arguments")
+        return positional to named
     }
 
     @Throws(ParseError::class)
@@ -616,8 +710,7 @@ class Parser(private val tokens: List<Token>) {
         consume(TokenKind.LBRACE, "Expected '{' before block")
         val stmts = mutableListOf<Statement>()
         while (!check(TokenKind.RBRACE) && !isAtEnd()) {
-            // 语句不能嵌套声明
-            stmts.add(parseStatement())
+            stmts += parseStatement()
         }
         consume(TokenKind.RBRACE, "Expected '}' after block")
         return stmts

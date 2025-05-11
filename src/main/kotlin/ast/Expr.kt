@@ -25,9 +25,18 @@ sealed class Expr : Node {
         val positional: List<Expr>,
         val named: Map<String, Expr>
     ) : Expr()
-
     data class FieldAccess(val target: Expr, val field: String) : Expr()
+    data class ModuleAccess(val moduleAlias: String, val member: String) : Expr()
     data class As(val expr: Expr, val targetType: Type) : Expr()
     data class Await(val expr: Expr) : Expr()
     data class AskExpr(val prompt: String) : Expr()
+    data class Match(
+        val scrutinee: Expr,        // 要匹配的目标
+        val cases: List<Case>        // 一组 case 分支
+    ) : Expr()
+    data class Case(
+        val pattern: Pattern,
+        val result: Expr
+    ) : Node
+    data class BlockExpr(val statements: List<Statement>) : Expr()
 }

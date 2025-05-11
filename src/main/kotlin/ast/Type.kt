@@ -18,4 +18,10 @@ sealed class Type : Node {
     data class Future(val baseType: Type) : Type()
     data class Generic(val baseName: kotlin.String, val typeArgs: List<Type>) : Type()
     data class TypeVar(val name: kotlin.String) : Type()
+    data class Function(
+        val typeParams: List<kotlin.String>,
+        val paramTypes: List<Type>,
+        val returnType: Type,
+        val isAsync: Boolean = false
+    ) : Type()
 }
