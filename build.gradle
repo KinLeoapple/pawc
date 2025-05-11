@@ -1,0 +1,44 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '2.1.20'
+    id 'org.graalvm.buildtools.native' version '0.10.6'
+}
+
+group = 'org.pawscript'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Kotlin 标准库
+    implementation "org.jetbrains.kotlin:kotlin-stdlib"
+
+    // CLI、协程等运行时依赖（按需增删）
+    implementation "org.jetbrains.kotlinx:kotlinx-cli:0.3.5"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.0"
+
+    testImplementation 'org.jetbrains.kotlin:kotlin-test'
+}
+
+test {
+    useJUnitPlatform()
+}
+kotlin {
+    jvmToolchain(21)
+}
+
+graalvmNative {
+    binaries {
+        main {
+            imageName = 'pawc'
+            mainClass = "org.pawscript.MainKt"
+            debug = false
+            verbose = false
+            fallback = false
+            sharedLibrary = false
+            quickBuild = false
+            richOutput = false
+        }
+    }
+}
