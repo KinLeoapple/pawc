@@ -9,12 +9,12 @@ class TypeChecker(
     private val externalModules: Map<String, ModuleContents>
 ) {
     // --- 符号表 ---
-    private val imports    = mutableMapOf<String, String>()
-    private val functions  = mutableMapOf<String, Declaration.Fun>()
-    private val constants  = mutableMapOf<String, Type>()
+    private val imports = mutableMapOf<String, String>()
+    private val functions = mutableMapOf<String, Declaration.Fun>()
+    private val constants = mutableMapOf<String, Type>()
     private val interfaces = mutableMapOf<String, Declaration.Tail>()
-    private val records    = mutableMapOf<String, Declaration.Record>()
-    private val varScopes  = mutableListOf<MutableMap<String, Type>>()
+    private val records = mutableMapOf<String, Declaration.Record>()
+    private val varScopes = mutableListOf<MutableMap<String, Type>>()
     private val typeParamStack = mutableListOf<List<String>>()
     private val currentTypeParams: List<String>
         get() = typeParamStack.lastOrNull() ?: emptyList()
@@ -29,9 +29,9 @@ class TypeChecker(
         // 2. 注册本地接口、记录、函数
         for (n in nodes) {
             when (n) {
-                is Declaration.Tail   -> registerInterface(n)
+                is Declaration.Tail -> registerInterface(n)
                 is Declaration.Record -> registerRecord(n)
-                is Declaration.Fun    -> registerLocalFunction(n)
+                is Declaration.Fun -> registerLocalFunction(n)
                 else -> {}
             }
         }
@@ -42,8 +42,8 @@ class TypeChecker(
         // 4. 对所有函数和语句执行类型检查
         for (n in nodes) {
             when (n) {
-                is Declaration.Fun    -> checkFunction(n)
-                is Statement         -> checkStatement(n)
+                is Declaration.Fun -> checkFunction(n)
+                is Statement -> checkStatement(n)
                 else -> {}
             }
         }
@@ -99,13 +99,13 @@ class TypeChecker(
         records[d.name] = d
 
         val ctor = Declaration.Fun(
-            typeParams   = emptyList(),
+            typeParams = emptyList(),
             receiverType = null,
-            name         = d.name,
-            params       = d.fields,
-            returnType   = Type.Custom(d.name),
-            body         = emptyList(),
-            isAsync      = false
+            name = d.name,
+            params = d.fields,
+            returnType = Type.Custom(d.name),
+            body = emptyList(),
+            isAsync = false
         )
 
         if (functions.containsKey(d.name)) {
@@ -127,6 +127,14 @@ class TypeChecker(
             throw DuplicateDeclarationError("Function '${d.name}' already declared", 0, 0)
         }
         functions[d.name] = d
+
+        d.receiverType?.let { recv ->
+            val key = "$recv.${d.name}"
+            if (functions.containsKey(key)) {
+                throw DuplicateDeclarationError("Method '$key' already declared", 0, 0)
+            }
+            functions[key] = d
+        }
     }
 
     // --- 验证记录实现接口 ---
@@ -188,6 +196,7 @@ class TypeChecker(
                 }
                 declareVar(stmt.name, tVar)
             }
+
             is Statement.Assign -> {
                 val tVar = resolveVar(stmt.name)
                 val tExpr = checkExpr(stmt.expr)
@@ -195,6 +204,7 @@ class TypeChecker(
                     throw TypeError("Assign to '${stmt.name}' expects $tVar but got $tExpr", 0, 0)
                 }
             }
+
             is Statement.If -> {
                 val cond = checkExpr(stmt.condition)
                 if (cond != Type.Bool) {
@@ -203,11 +213,13 @@ class TypeChecker(
                 stmt.thenBranch.forEach { checkStatement(it) }
                 stmt.elseBranch?.forEach { checkStatement(it) }
             }
+
             is Statement.LoopInfinite -> {
                 loopDepth++; enterScope()
                 stmt.body.forEach { checkStatement(it) }
                 exitScope(); loopDepth--
             }
+
             is Statement.LoopWhile -> {
                 if (checkExpr(stmt.condition) != Type.Bool) {
                     throw TypeError("Loop condition must be Bool", 0, 0)
@@ -216,22 +228,39 @@ class TypeChecker(
                 stmt.body.forEach { checkStatement(it) }
                 exitScope(); loopDepth--
             }
+
             is Statement.LoopIn -> {
                 loopDepth++; enterScope()
                 declareVar(stmt.itemName, Type.Any)
                 stmt.body.forEach { checkStatement(it) }
                 exitScope(); loopDepth--
             }
+
             is Statement.LoopIndexed -> {
-                loopDepth++; enterScope()
+                // 先判断被遍历的表达式类型
+                val tIter = checkExpr(stmt.arrayExpr)
+                val elemType = when (tIter) {
+                    is Type.Array -> tIter.elementType
+                    else -> throw TypeError(
+                        "Cannot loop over non-array type $tIter",
+                        0, 0
+                    )
+                }
+
+                loopDepth++
+                enterScope()
+                // 索引变量是 Int
                 declareVar(stmt.indexName, Type.Int)
-                declareVar(stmt.itemName, Type.Any)
+                // 元素变量用推断出来的 elemType
+                declareVar(stmt.itemName, elemType)
                 stmt.body.forEach { checkStatement(it) }
-                exitScope(); loopDepth--
+                exitScope()
+                loopDepth--
             }
+
             is Statement.LoopRange -> {
                 if (checkExpr(stmt.start) !in listOf(Type.Int, Type.Float) ||
-                    checkExpr(stmt.end)   !in listOf(Type.Int, Type.Float)
+                    checkExpr(stmt.end) !in listOf(Type.Int, Type.Float)
                 ) {
                     throw TypeError("Range bounds must be numeric", 0, 0)
                 }
@@ -240,6 +269,7 @@ class TypeChecker(
                 stmt.body.forEach { checkStatement(it) }
                 exitScope(); loopDepth--
             }
+
             is Statement.Break, is Statement.Continue -> {
                 if (loopDepth == 0) {
                     throw ControlFlowError(
@@ -248,18 +278,22 @@ class TypeChecker(
                     )
                 }
             }
+
             is Statement.Return -> stmt.expr?.let { checkExpr(it) }
-            is Statement.Bark   -> checkExpr(stmt.expr)
-            is Statement.Say    -> {
+            is Statement.Bark -> checkExpr(stmt.expr)
+            is Statement.Say -> {
                 val t = checkExpr(stmt.expr)
                 if (t != Type.String) {
                     throw TypeError("say requires a String expression, got $t", 0, 0)
                 }
             }
-            is Statement.Ask    -> { /* ask returns String */ }
+
+            is Statement.Ask -> { /* ask returns String */
+            }
+
             is Statement.ExprStmt -> checkExpr(stmt.expr)
             is Statement.Sniff -> {
-                stmt.tryBlock.forEach    { checkStatement(it) }
+                stmt.tryBlock.forEach { checkStatement(it) }
                 stmt.catchBlock?.forEach { checkStatement(it) }
                 stmt.finallyBlock?.forEach { checkStatement(it) }
             }
@@ -269,18 +303,18 @@ class TypeChecker(
     // --- 表达式检查 ---
     private fun checkExpr(expr: Expr): Type {
         return when (expr) {
-            is Expr.LiteralInt    -> Type.Int
-            is Expr.LiteralFloat  -> Type.Float
-            is Expr.LiteralBool   -> Type.Bool
-            is Expr.LiteralChar   -> Type.Char
+            is Expr.LiteralInt -> Type.Int
+            is Expr.LiteralFloat -> Type.Float
+            is Expr.LiteralBool -> Type.Bool
+            is Expr.LiteralChar -> Type.Char
             is Expr.LiteralString -> Type.String
-            is Expr.AskExpr       -> Type.String
-            Expr.Nopaw            -> Type.Optional(Type.Void)
-            is Expr.Variable      -> resolveVar(expr.name)
-            is Expr.StringTemplate-> Type.String
+            is Expr.AskExpr -> Type.String
+            Expr.Nopaw -> Type.Optional(Type.Void)
+            is Expr.Variable -> resolveVar(expr.name)
+            is Expr.StringTemplate -> Type.String
 
             is Expr.ModuleAccess -> {
-                val alias  = expr.moduleAlias
+                val alias = expr.moduleAlias
                 val member = expr.member
 
                 val modName = imports[alias]
@@ -291,7 +325,7 @@ class TypeChecker(
                 val fn = functions["$alias.$member"]
                     ?: throw NameError("Module '$alias' has no constant or function '$member'", 0, 0)
                 val paramTs = fn.params.map { it.type }
-                val retT    = fn.returnType
+                val retT = fn.returnType
                     ?: throw FunctionCallError("Function '${fn.name}' must declare return type", 0, 0)
                 return Type.Function(
                     typeParams = fn.typeParams,
@@ -326,7 +360,15 @@ class TypeChecker(
                     else expr.named[decl.params[i].name]
                         ?: throw FunctionCallError("Missing argument for parameter '${decl.params[i].name}'", 0, 0)
                     val actual = checkExpr(argExpr)
-                    if (actual != expected) {
+                    val ok = if (actual == expected) {
+                        true
+                    } else if (expected is Type.Optional && actual is Type.Optional) {
+                        true
+                    } else {
+                        false
+                    }
+
+                    if (!ok) {
                         throw FunctionCallError(
                             "In call to '${decl.name}', parameter '${decl.params[i].name}' expects $expected but got $actual",
                             0, 0
@@ -334,8 +376,10 @@ class TypeChecker(
                     }
                 }
                 if (decl.isAsync) {
-                    Type.Future(instantiatedReturnType
-                        ?: throw FunctionCallError("Async function must declare return type", 0, 0))
+                    Type.Future(
+                        instantiatedReturnType
+                            ?: throw FunctionCallError("Async function must declare return type", 0, 0)
+                    )
                 } else {
                     instantiatedReturnType
                         ?: throw FunctionCallError("Function '${decl.name}' must declare return type", 0, 0)
@@ -368,8 +412,10 @@ class TypeChecker(
                     }
                 }
                 if (decl.isAsync) {
-                    Type.Future(decl.returnType
-                        ?: throw FunctionCallError("Async method '$key' must declare return type", 0, 0))
+                    Type.Future(
+                        decl.returnType
+                            ?: throw FunctionCallError("Async method '$key' must declare return type", 0, 0)
+                    )
                 } else {
                     decl.returnType
                         ?: throw FunctionCallError("Method '$key' must declare return type", 0, 0)
@@ -415,7 +461,7 @@ class TypeChecker(
             }
 
             is Expr.Binary -> checkBinary(expr)
-            is Expr.Unary  -> checkUnary(expr)
+            is Expr.Unary -> checkUnary(expr)
 
             is Expr.Match -> {
                 val tScrut = checkExpr(expr.scrutinee)
@@ -432,6 +478,7 @@ class TypeChecker(
                 }
                 resultType ?: throw TypeError("Match must have at least one case", 0, 0)
             }
+
             is Expr.BlockExpr -> {
                 // 新作用域
                 enterScope()
@@ -442,11 +489,13 @@ class TypeChecker(
                         is Statement.ExprStmt -> {
                             lastType = checkExpr(stmt.expr)
                         }
+
                         is Statement.Return -> {
                             // return 在块表达式里直接当成结果
                             lastType = stmt.expr?.let { checkExpr(it) } ?: Type.Void
                             break
                         }
+
                         else -> {
                             checkStatement(stmt)
                             lastType = Type.Void
@@ -472,27 +521,31 @@ class TypeChecker(
     private fun checkTypeAnnotation(t: Type): Type {
         when (t) {
             is Type.Generic -> t.typeArgs.forEach { checkTypeAnnotation(it) }
-            is Type.Array   -> checkTypeAnnotation(t.elementType)
-            is Type.Optional-> checkTypeAnnotation(t.baseType)
-            is Type.Future  -> checkTypeAnnotation(t.baseType)
+            is Type.Array -> checkTypeAnnotation(t.elementType)
+            is Type.Optional -> checkTypeAnnotation(t.baseType)
+            is Type.Future -> checkTypeAnnotation(t.baseType)
             is Type.TypeVar -> if (t.name !in currentTypeParams) {
                 throw TypeError("Unknown type variable '${t.name}'", 0, 0)
             }
-            is Type.Custom  -> if (!interfaces.containsKey(t.name) && !records.containsKey(t.name)) {
+
+            is Type.Custom -> if (!interfaces.containsKey(t.name) && !records.containsKey(t.name)) {
                 throw NameError("Unknown type '${t.name}'", 0, 0)
             }
+
             else -> {}
         }
         return t
     }
 
     private fun checkBinary(e: Expr.Binary): Type {
-        val lt = checkExpr(e.left); val rt = checkExpr(e.right)
+        val lt = checkExpr(e.left);
+        val rt = checkExpr(e.right)
         return when (e.op) {
             ADD, SUB, MUL, DIV, MOD -> if (lt == rt && (lt == Type.Int || lt == Type.Float)) lt
             else throw TypeError("${e.op} requires Int/Float, got $lt and $rt", 0, 0)
-            EQEQ, NEQ, LT, LE, GT, GE   -> Type.Bool
-            AND, OR                     -> if (lt == Type.Bool && rt == Type.Bool) Type.Bool
+
+            EQEQ, NEQ, LT, LE, GT, GE -> Type.Bool
+            AND, OR -> if (lt == Type.Bool && rt == Type.Bool) Type.Bool
             else throw TypeError("${e.op} requires Bool, got $lt and $rt", 0, 0)
         }
     }
@@ -501,7 +554,7 @@ class TypeChecker(
         val t = checkExpr(e.expr)
         return when (e.op) {
             NOT -> if (t == Type.Bool) Type.Bool else throw TypeError("! requires Bool, got $t", 0, 0)
-            NEG -> if (t == Type.Int ) Type.Int  else throw TypeError("- requires Int, got $t", 0, 0)
+            NEG -> if (t == Type.Int) Type.Int else throw TypeError("- requires Int, got $t", 0, 0)
         }
     }
 
@@ -511,30 +564,36 @@ class TypeChecker(
             is Pattern.Wildcard -> return
             is Pattern.Literal -> {
                 val litType = when (pat.value) {
-                    is Long   -> Type.Int
+                    is Long -> Type.Int
                     is Double -> Type.Float
-                    is Boolean-> Type.Bool
-                    is Char   -> Type.Char
+                    is Boolean -> Type.Bool
+                    is Char -> Type.Char
                     is String -> Type.String
-                    else -> throw TypeError("Unsupported literal in pattern: ${pat.value}",0,0)
+                    else -> throw TypeError("Unsupported literal in pattern: ${pat.value}", 0, 0)
                 }
                 if (litType != scrutineeType) {
-                    throw TypeError("Pattern literal type $litType does not match scrutinee type $scrutineeType", 0,0)
+                    throw TypeError("Pattern literal type $litType does not match scrutinee type $scrutineeType", 0, 0)
                 }
             }
+
             is Pattern.Var -> {
                 // 变量模式，总是能匹配，绑定到 scrutineeType
                 declareVar(pat.name, scrutineeType)
             }
+
             is Pattern.Constructor -> {
                 // 构造器模式：只能对记录或自定义类型做解构
                 if (scrutineeType !is Type.Custom) {
-                    throw TypeError("Cannot match constructor ${pat.name} on non-custom type $scrutineeType",0,0)
+                    throw TypeError("Cannot match constructor ${pat.name} on non-custom type $scrutineeType", 0, 0)
                 }
                 val rec = records[scrutineeType.name]
-                    ?: throw NameError("Unknown record type '${scrutineeType.name}'",0,0)
+                    ?: throw NameError("Unknown record type '${scrutineeType.name}'", 0, 0)
                 if (rec.fields.size != pat.args.size) {
-                    throw TypeError("Constructor '${pat.name}' expects ${rec.fields.size} args, got ${pat.args.size}",0,0)
+                    throw TypeError(
+                        "Constructor '${pat.name}' expects ${rec.fields.size} args, got ${pat.args.size}",
+                        0,
+                        0
+                    )
                 }
                 // 对每个子模式，用字段类型递归检查
                 rec.fields.zip(pat.args).forEach { (field, subPat) ->
@@ -545,8 +604,13 @@ class TypeChecker(
     }
 
     // --- 作用域 & 变量 ---
-    private fun enterScope() { varScopes.add(mutableMapOf()) }
-    private fun exitScope()  { varScopes.removeAt(varScopes.lastIndex) }
+    private fun enterScope() {
+        varScopes.add(mutableMapOf())
+    }
+
+    private fun exitScope() {
+        varScopes.removeAt(varScopes.lastIndex)
+    }
 
     private fun declareVar(name: String, type: Type) {
         if (varScopes.isEmpty()) varScopes.add(mutableMapOf())
@@ -566,7 +630,7 @@ class TypeChecker(
 
         functions[name]?.let { fn ->
             val paramTs = fn.params.map { it.type }
-            val retT    = fn.returnType
+            val retT = fn.returnType
                 ?: throw FunctionCallError("Function '${fn.name}' must declare return type", 0, 0)
             return Type.Function(fn.typeParams, paramTs, retT, fn.isAsync)
         }
@@ -581,9 +645,9 @@ class TypeChecker(
     private fun substitute(type: Type, env: Map<String, Type>): Type = when (type) {
         is Type.TypeVar -> env[type.name] ?: type
         is Type.Generic -> Type.Generic(type.baseName, type.typeArgs.map { substitute(it, env) })
-        is Type.Array   -> Type.Array(substitute(type.elementType, env))
-        is Type.Optional-> Type.Optional(substitute(type.baseType, env))
-        is Type.Future  -> Type.Future(substitute(type.baseType, env))
-        else            -> type
+        is Type.Array -> Type.Array(substitute(type.elementType, env))
+        is Type.Optional -> Type.Optional(substitute(type.baseType, env))
+        is Type.Future -> Type.Future(substitute(type.baseType, env))
+        else -> type
     }
 }

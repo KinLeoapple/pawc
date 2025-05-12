@@ -39,6 +39,7 @@ fun main(args: Array<String>) {
     try {
         val source = Files.readString(scriptPath)
         val tokens = Lexer(source).tokenize()
+
         val nodes  = Parser(tokens).parse()
 
         val checker = TypeChecker(externalModules)

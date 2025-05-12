@@ -171,6 +171,8 @@ class Lexer(private val source: String) {
 
     private fun symbolOrError(c: Char) {
         when (c) {
+            '{' -> addToken(TokenKind.LBRACE)
+            '}' -> addToken(TokenKind.RBRACE)
             '+' -> addToken(TokenKind.PLUS)
             '-' -> if (match('>')) addToken(TokenKind.ARROW) else addToken(TokenKind.MINUS)
             '*' -> addToken(TokenKind.STAR)
@@ -179,8 +181,6 @@ class Lexer(private val source: String) {
             '?' -> addToken(TokenKind.QUESTION)
             '(' -> addToken(TokenKind.LPAREN)
             ')' -> addToken(TokenKind.RPAREN)
-            '{' -> addToken(TokenKind.LBRACE)
-            '}' -> addToken(TokenKind.RBRACE)
             '[' -> addToken(TokenKind.LBRACKET)
             ']' -> addToken(TokenKind.RBRACKET)
             ',' -> addToken(TokenKind.COMMA)

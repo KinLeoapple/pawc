@@ -24,6 +24,7 @@ class Parser(private val tokens: List<Token>) {
     private val typeParamStack = mutableListOf<List<String>>()
     private val currentTypeParams: List<String>
         get() = typeParamStack.lastOrNull() ?: emptyList()
+    private val moduleAliases = mutableSetOf<String>()
 
     /** 解析入口，返回混合 Declaration 和 Statement 的节点列表 */
     @Throws(ParseError::class)
@@ -59,6 +60,7 @@ class Parser(private val tokens: List<Token>) {
         } else {
             null
         }
+        moduleAliases += (alias ?: module)
         return Declaration.Import(module, alias)
     }
 
@@ -244,46 +246,53 @@ class Parser(private val tokens: List<Token>) {
     @Throws(ParseError::class)
     private fun parseIf(): Statement.If {
         val condition = parseExpression()
-        val thenBranch = parseBlock()
-        val elseBranch = if (match(TokenKind.ELSE)) {
-            if (match(TokenKind.IF)) listOf(parseIf()) else parseBlock()
+
+        val thenBranch = if (check(TokenKind.LBRACE)) {
+            parseBlock()
+        } else {
+            listOf(parseStatement())
+        }
+
+        val elseBranch = if (check(TokenKind.ELSE)) {
+            if (match(TokenKind.LBRACE)) parseBlock()
+            else listOf(parseStatement())
         } else null
+
         return Statement.If(condition, thenBranch, elseBranch)
     }
 
     @Throws(ParseError::class)
     private fun parseLoop(): Statement {
-        if (check(TokenKind.LBRACE)) return Statement.LoopInfinite(parseBlock())
-
-        // indexed loop
-        if (check(TokenKind.IDENTIFIER) && peekNext().kind == TokenKind.COMMA) {
-            val idx = advance().lexeme
-            advance() // comma
-            val itm = consume(TokenKind.IDENTIFIER, "Expected item name").lexeme
-            consume(TokenKind.IN, "Expected 'in'")
-            val arr = parseExpression()
-            val b = parseBlock()
-            return Statement.LoopIndexed(idx, itm, arr, b)
+        if (check(TokenKind.LBRACE)) {
+            val body = parseBlock()
+            return Statement.LoopInfinite(body)
         }
 
-        // in or range loop
+        if (check(TokenKind.IDENTIFIER) && peekNext().kind == TokenKind.COMMA) {
+            val idx  = advance().lexeme; advance()
+            val itm  = consume(TokenKind.IDENTIFIER, "Expected item name").lexeme
+            consume(TokenKind.IN, "Expected 'in'")
+            val arr  = parseExpression()
+            val body = if (check(TokenKind.LBRACE)) parseBlock() else listOf(parseStatement())
+            return Statement.LoopIndexed(idx, itm, arr, body)
+        }
+
         if (check(TokenKind.IDENTIFIER) && peekNext().kind == TokenKind.IN) {
-            val itm = advance().lexeme; advance()
+            val itm   = advance().lexeme; advance()
             val first = parseExpression()
             if (match(TokenKind.RANGE)) {
                 val second = parseExpression()
-                val b = parseBlock()
-                return Statement.LoopRange(itm, first, second, b)
+                val body   = if (check(TokenKind.LBRACE)) parseBlock() else listOf(parseStatement())
+                return Statement.LoopRange(itm, first, second, body)
             } else {
-                val b = parseBlock()
-                return Statement.LoopIn(itm, first, b)
+                val body   = if (check(TokenKind.LBRACE)) parseBlock() else listOf(parseStatement())
+                return Statement.LoopIn(itm, first, body)
             }
         }
 
-        // while
-        val cond = parseExpression()
-        val b = parseBlock()
-        return Statement.LoopWhile(cond, b)
+        val condition = parseExpression()
+        val body      = if (check(TokenKind.LBRACE)) parseBlock() else listOf(parseStatement())
+        return Statement.LoopWhile(condition, body)
     }
 
     @Throws(ParseError::class)
@@ -345,21 +354,31 @@ class Parser(private val tokens: List<Token>) {
         consume(TokenKind.LBRACE, "Expected '{' after match scrutinee")
 
         val cases = mutableListOf<Expr.Case>()
-        do {
+        while (!check(TokenKind.RBRACE) && !isAtEnd()) {
             val pat = parsePattern()
             consume(TokenKind.ARROW, "Expected '->' after pattern")
-
-            // 如果下一个是 LBRACE，则把分支体当成 BlockExpr
-            val resultExpr = if (check(TokenKind.LBRACE)) {
-                // parseBlock 返回 List<Statement>, 但我们需要 BlockExpr
-                val stmts = parseBlock()
-                Expr.BlockExpr(stmts)
+            val resultExpr: Expr = if (check(TokenKind.LBRACE)) {
+                Expr.BlockExpr(parseBlock())
             } else {
-                // 单表达式分支
                 parseExpression()
             }
             cases += Expr.Case(pat, resultExpr)
-        } while (match(TokenKind.COMMA))
+
+            if (!match(TokenKind.COMMA)) {
+                if (peek().kind in setOf(
+                        TokenKind.UNDERSCORE,
+                        TokenKind.INT_LITERAL,
+                        TokenKind.FLOAT_LITERAL,
+                        TokenKind.STRING_LITERAL,
+                        TokenKind.CHAR_LITERAL,
+                        TokenKind.IDENTIFIER
+                    )
+                ) {
+                } else {
+                    break
+                }
+            }
+        }
 
         consume(TokenKind.RBRACE, "Expected '}' after match cases")
         return Expr.Match(scrutinee, cases)
@@ -567,23 +586,38 @@ class Parser(private val tokens: List<Token>) {
                 continue@loop
             }
 
-            // —— 2. 模块成员访问或调用：u.foo or u.foo(…) ——
+            // —— 2. 模块/方法/字段访问或调用 ——
             if (result is Expr.Variable && match(TokenKind.DOT)) {
-                val alias  = result.name
-                val member = consume(TokenKind.IDENTIFIER, "Expected member name after '$alias.'").lexeme
+                val leftName = result.name
+                val member   = consume(TokenKind.IDENTIFIER, "Expected name after '$leftName.'").lexeme
 
                 if (match(TokenKind.LPAREN)) {
-                    // 2.1 模块方法调用
                     val (positional, named) = parseArguments()
-                    result = Expr.Call(
-                        callee     = "$alias.$member",
-                        typeArgs   = emptyList(),
-                        positional = positional,
-                        named      = named
-                    )
+                    if (moduleAliases.contains(leftName)) {
+                        // 模块方法调用
+                        result = Expr.Call(
+                            callee     = "$leftName.$member",
+                            typeArgs   = emptyList(),
+                            positional = positional,
+                            named      = named
+                        )
+                    } else {
+                        // 对象方法调用
+                        result = Expr.MethodCall(
+                            target     = Expr.Variable(leftName),
+                            method     = member,
+                            positional = positional,
+                            named      = named
+                        )
+                    }
                 } else {
-                    // 2.2 模块属性访问
-                    result = Expr.ModuleAccess(alias, member)
+                    if (moduleAliases.contains(leftName)) {
+                        // 模块属性访问
+                        result = Expr.ModuleAccess(leftName, member)
+                    } else {
+                        // 对象字段访问
+                        result = Expr.FieldAccess(result, member)
+                    }
                 }
                 continue@loop
             }
