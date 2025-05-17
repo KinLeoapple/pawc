@@ -1,3 +1,5 @@
+use crate::ast::param::Param;
+
 /// 支持的所有方法
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Method {
@@ -51,4 +53,15 @@ impl Method {
             Method::Other        => "", // or panic! if you never use Other here
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodSig {
+    /// 方法名
+    pub name: String,
+    /// 参数列表：Vec<(参数名, 参数类型名)>
+    pub params: Vec<Param>,
+    pub is_async: bool,
+    /// 返回类型名
+    pub return_type: Option<String>,
 }

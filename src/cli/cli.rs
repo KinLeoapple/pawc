@@ -2,10 +2,14 @@
 
 use crate::interpreter::interpreter::Engine;
 use crate::parser::parser::Parser as PawParser;
-use crate::{error::error::PawError, interpreter::env::Env, interpreter::interpreter::Interpreter, lexer::lexer::Lexer, semantic::type_checker::TypeChecker, STACK_SIZE};
+use crate::{
+    error::error::PawError, interpreter::env::Env, interpreter::interpreter::Interpreter,
+    lexer::lexer::Lexer, semantic::type_checker::TypeChecker, STACK_SIZE,
+};
 use clap::Parser;
-use std::path::PathBuf;
 use std::fs;
+use std::path::{Path, PathBuf};
+use crate::utils::package::derive_package_name;
 
 /// 🐾 PawScript interpreter — execute .paw scripts
 #[derive(Parser, Debug)]
@@ -28,7 +32,7 @@ struct Args {
 pub(crate) async fn run() {
     let args = Args::parse();
     STACK_SIZE.set(args.stack_size).ok();
-    
+
     if let Err(err) = run_script(&args.script).await {
         eprintln!("{}", err);
         std::process::exit(1);
@@ -53,14 +57,16 @@ async fn run_script(script: &PathBuf) -> Result<(), PawError> {
 
     let mut parser = PawParser::new(tokens, &src, &*script.to_string_lossy());
     let ast = parser.parse_program().map_err(|err| {
-        // If you want, you could fill in err.line/column/snippet here
         err
     })?;
 
-    // 3. Static type check
-    let mut tc = TypeChecker::new(&*script.to_string_lossy());
-    tc.check_program(&ast).map_err(|err| {
-        // err already has code/message/etc.
+    // 3. Static type check — 先隐式推断包名，再传给 TypeChecker
+    let project_root = std::env::current_dir()
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."));
+    let pkg = derive_package_name(script.as_path(), &project_root);
+    let mut tc = TypeChecker::new(&*script.to_string_lossy(), &*pkg);
+    tc.check_program(&ast, &project_root).map_err(|err| {
         err
     })?;
 
@@ -70,7 +76,8 @@ async fn run_script(script: &PathBuf) -> Result<(), PawError> {
     vuot::run(Interpreter {
         engine,
         statements: &ast,
-    }).await?;
+    })
+    .await?;
 
     Ok(())
 }

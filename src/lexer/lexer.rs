@@ -182,7 +182,8 @@ impl Lexer {
                     kw @ "if" | kw @ "else" | kw @ "loop" | kw @ "forever" |
                     kw @ "return" | kw @ "break" | kw @ "continue" |
                     kw @ "in" | kw @ "bark" | kw @ "sniff" |
-                    kw @ "snatch" | kw @ "lastly" | kw @ "nopaw" | kw @ "record" => {
+                    kw @ "snatch" | kw @ "lastly" | kw @ "nopaw" | 
+                    kw @ "record" | kw @ "tail" => {
                         TokenKind::Keyword(kw.into())
                     }
                     // 类型

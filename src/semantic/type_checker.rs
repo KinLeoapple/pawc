@@ -1,9 +1,12 @@
 use crate::ast::expr::{Expr, ExprKind};
+use crate::ast::method::MethodSig;
 use crate::ast::param::Param;
 use crate::ast::statement::{Statement, StatementKind};
 use crate::error::error::PawError;
 use crate::semantic::scope::{PawType, Scope};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::Path;
 
 /// 静态类型检查器
 pub struct TypeChecker {
@@ -11,63 +14,207 @@ pub struct TypeChecker {
     pub throwing_functions: HashSet<String>,
     current_fn: Option<String>,
     current_file: String,
+    current_package: String,
+    interfaces: HashMap<String, Vec<MethodSig>>,
+    record_impls: HashMap<String, Vec<String>>,
+    methods: HashMap<String, Vec<MethodSig>>,
+    declared_types: HashMap<String, String>,
 }
 
 impl TypeChecker {
-    pub fn new(filename: &str) -> Self {
+    pub fn new(filename: &str, package: &str) -> Self {
         Self {
             scope: Scope::new(),
             throwing_functions: HashSet::new(),
             current_fn: None,
             current_file: filename.into(),
+            current_package: package.into(),
+            interfaces: HashMap::new(),
+            record_impls: HashMap::new(),
+            methods: HashMap::new(),
+            declared_types: HashMap::new(),
         }
     }
 
-    pub fn with_parent(parent: &Scope, filename: &str) -> Self {
+    pub fn with_parent(parent_tc: &TypeChecker) -> Self {
         Self {
-            scope: Scope::with_parent(parent),
+            scope: Scope::with_parent(&parent_tc.scope),
             throwing_functions: HashSet::new(),
             current_fn: None,
-            current_file: filename.into(),
+            current_file: parent_tc.current_file.clone(),
+            current_package: parent_tc.current_package.clone(),
+            interfaces: parent_tc.interfaces.clone(),
+            record_impls: parent_tc.record_impls.clone(),
+            methods: parent_tc.methods.clone(),
+            declared_types: parent_tc.declared_types.clone(),
         }
     }
 
-    /// 顶级入口：预注册函数签名并检查所有语句
-    pub fn check_program(&mut self, stmts: &[Statement]) -> Result<(), PawError> {
-        // 1. 预注册函数名和签名
+    pub fn register_declarations(&mut self, stmts: &[Statement]) {
         for stmt in stmts {
-            if let StatementKind::FunDecl {
-                name,
-                return_type,
-                params: _params,
-                ..
-            } = &stmt.kind
-            {
-                let ret_ty = return_type
-                    .as_deref()
-                    .map(PawType::from_str)
-                    .unwrap_or(PawType::Void);
-                self.scope
-                    .define(name, ret_ty, stmt.line, stmt.col, &self.current_file)
-                    .map_err(|_| PawError::DuplicateDefinition {
-                        file: self.current_file.clone(),
-                        code: "E2005",
+            match &stmt.kind {
+                // 1) 接口声明  
+                StatementKind::InterfaceDecl { name, methods } => {
+                    let fq = if self.current_package.is_empty() {
+                        name.clone()
+                    } else {
+                        format!("{}.{}", self.current_package, name)
+                    };
+                    self.interfaces
+                        .entry(fq)
+                        .or_default()
+                        .extend(methods.clone());
+                }
+
+                // 2) record 声明：记录 impls 并把 record 定义到 scope  
+                StatementKind::RecordDecl { name, impls, fields } => {
+                    self.record_impls.insert(name.clone(), impls.clone());
+                    let field_types = fields
+                        .iter()
+                        .map(|p| (p.name.clone(), PawType::from_str(&p.ty)))
+                        .collect();
+                    let _ = self.scope.define(
+                        name,
+                        PawType::Record(field_types),
+                        stmt.line,
+                        stmt.col,
+                        &self.current_file,
+                    );
+                }
+
+                // 3) 方法签名：只收带 receiver 的 FunDecl  
+                StatementKind::FunDecl {
+                    receiver: Some(rec),
+                    name,
+                    params,
+                    is_async,
+                    return_type,
+                    ..
+                } => {
+                    let sig = MethodSig {
                         name: name.clone(),
+                        params: params.clone(),
+                        is_async: *is_async,
+                        return_type: return_type.clone(),
+                    };
+                    self.methods.entry(rec.clone()).or_default().push(sig);
+                }
+
+                _ => {}
+            }
+        }
+    }
+    
+    /// 顶级入口：预注册函数签名并检查所有语句
+    pub fn check_program(&mut self, stmts: &[Statement], project_root: &Path) -> Result<(), PawError> {
+        for stmt in stmts {
+            // 1) 如果是 import，就去对应目录加载所有 .paw，并注册它们的声明
+            if let StatementKind::Import { module, alias: _ } = &stmt.kind {
+                let dir = project_root.join(module.join("/"));
+                if dir.is_dir() {
+                    // map the directory‐read error into a PawError
+                    let entries = fs::read_dir(&dir).map_err(|e| PawError::Internal {
+                        file: dir.to_string_lossy().into(),
+                        code: "E1000".into(),
+                        message: format!("Failed to read directory '{}': {}", dir.display(), e),
                         line: stmt.line,
                         column: stmt.col,
                         snippet: None,
-                        hint: Some("Function already defined".into()),
+                        hint: Some("Ensure the directory exists and is readable".into()),
                     })?;
+
+                    // now iterate, mapping each entry‐read error as well
+                    for entry_result in entries {
+                        let entry = entry_result.map_err(|e| PawError::Internal {
+                            file: dir.to_string_lossy().into(),
+                            code: "E1001".into(),
+                            message: format!("Failed to read an entry in '{}': {}", dir.display(), e),
+                            line: stmt.line,
+                            column: stmt.col,
+                            snippet: None,
+                            hint: None,
+                        })?;
+
+                        let path = entry.path();
+                        if path.extension().and_then(|e| e.to_str()) == Some("paw") {
+                            // … load & parse this .paw file …
+                        }
+                    }
+                }
+            }
+
+            // 2) 注册本文件里的声明
+            match &stmt.kind {
+                // 接口声明
+                StatementKind::InterfaceDecl { name, methods } => {
+                    let fq = if self.current_package.is_empty() {
+                        name.clone()
+                    } else {
+                        format!("{}.{}", self.current_package, name)
+                    };
+                    self.interfaces.entry(fq).or_default().extend(methods.clone());
+                }
+
+                // record 声明
+                StatementKind::RecordDecl { name, impls, fields } => {
+                    self.record_impls.insert(name.clone(), impls.clone());
+                    let field_types = fields
+                        .iter()
+                        .map(|p| (p.name.clone(), PawType::from_str(&p.ty)))
+                        .collect();
+                    let _ = self.scope.define(
+                        name,
+                        PawType::Record(field_types),
+                        stmt.line,
+                        stmt.col,
+                        &self.current_file,
+                    );
+                }
+
+                // 方法签名（带 receiver 的 fun）
+                StatementKind::FunDecl {
+                    receiver: Some(rec),
+                    name,
+                    params,
+                    is_async,
+                    return_type,
+                    ..
+                } => {
+                    let sig = MethodSig {
+                        name: name.clone(),
+                        params: params.clone(),
+                        is_async: *is_async,
+                        return_type: return_type.clone(),
+                    };
+                    self.methods.entry(rec.clone()).or_default().push(sig);
+                }
+
+                // free‐function（不带 receiver 的 fun）预先放到 scope
+                StatementKind::FunDecl {
+                    receiver: None,
+                    name,
+                    return_type,
+                    ..
+                } => {
+                    let ret_ty = return_type
+                        .as_deref()
+                        .map(PawType::from_str)
+                        .unwrap_or(PawType::Void);
+                    let _ = self.scope.define(name, ret_ty, stmt.line, stmt.col, &self.current_file);
+                }
+
+                _ => {}
             }
         }
-        // 2. 检查每条语句
+        
         for stmt in stmts {
-            self.check_statement(stmt)?;
+            self.check_statement(stmt, project_root)?;
         }
+
         Ok(())
     }
 
-    pub fn check_statement(&mut self, stmt: &Statement) -> Result<(), PawError> {
+    pub fn check_statement(&mut self, stmt: &Statement, project_root: &Path,) -> Result<(), PawError> {
         match &stmt.kind {
             StatementKind::Let {
                 name,
@@ -119,11 +266,68 @@ impl TypeChecker {
                 // 5. 把真正的 PawType 存到 scope
                 self.scope
                     .define(&*name, declared_ty, stmt.line, stmt.col, &self.current_file)?;
+
+                if let ExprKind::RecordInit { name: rec_name, .. } = &value.kind {
+                    if let Some(ifaces) = self.record_impls.get(rec_name) {
+                        if ifaces.contains(declared_str) {
+                            // 构造全限定接口名
+                            let fq = if self.current_package.is_empty() {
+                                declared_str.to_string()
+                            } else {
+                                format!("{}.{}", self.current_package, declared_str)
+                            };
+                            // 找接口签名列表
+                            let reqs = self.interfaces.get(&fq).ok_or_else(|| PawError::Type {
+                                file: self.current_file.clone(),
+                                code: "E4006".into(),
+                                message: format!("Unknown interface `{}`", declared_str),
+                                line: stmt.line,
+                                column: stmt.col,
+                                snippet: None,
+                                hint: None,
+                            })?;
+                            // 找到 record 的方法
+                            let got: &[MethodSig] = self
+                                .methods
+                                .get(rec_name)
+                                .map(|v| v.as_slice())
+                                .unwrap_or(&[]);
+                            // 对比每个接口方法
+                            for req in reqs {
+                                let matched = got.iter().any(|m| {
+                                    m.name == req.name
+                                        && m.is_async == req.is_async
+                                        && m.return_type == req.return_type
+                                        && m.params.len() == req.params.len()
+                                        && m.params
+                                            .iter()
+                                            .zip(&req.params)
+                                            .all(|(a, b)| a.ty == b.ty)
+                                });
+                                if !matched {
+                                    return Err(PawError::Type {
+                                        file: self.current_file.clone(),
+                                        code: "E4007".into(),
+                                        message: format!(
+                                            "Method `{}` of record `{}` does not match the signature in interface `{}`",
+                                            req.name, rec_name, declared_str
+                                        ),
+                                        line: stmt.line,
+                                        column: stmt.col,
+                                        snippet: None,
+                                        hint: Some("Check parameters, return type and async modifier".into()),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             StatementKind::Assign { name, value } => {
                 // 1. 拿到变量声明时的类型
                 let declared_ty = self.scope.lookup(name).unwrap_or(PawType::Any);
+                let declared_str_opt = self.declared_types.get(name).cloned();
                 // 2. 推断出待赋值表达式的类型
                 let mut inferred = self.check_expr(value)?;
                 // 3. 如果赋值的是 nopaw 字面量，且声明类型本身是 Optional<T>，则直接当成 declared_ty
@@ -159,21 +363,84 @@ impl TypeChecker {
                         hint: Some("Ensure assigned value matches declared type".into()),
                     });
                 }
+
+                if let Some(declared_str) = declared_str_opt {
+                    if let ExprKind::RecordInit { name: rec_name, .. } = &value.kind {
+                        // 1. 该 record 在声明里列出了哪些接口？
+                        if let Some(ifaces) = self.record_impls.get(rec_name) {
+                            // 2. 如果它包含当前变量的声明接口名，就做对比
+                            if ifaces.contains(&declared_str) {
+                                // a) 拼全限定接口名
+                                let fq_iface = if self.current_package.is_empty() {
+                                    declared_str.clone()
+                                } else {
+                                    format!("{}.{}", self.current_package, declared_str)
+                                };
+                                // b) 拿接口签名列表
+                                let reqs = self.interfaces.get(&fq_iface).ok_or_else(|| {
+                                    PawError::Type {
+                                        file: self.current_file.clone(),
+                                        code: "E4006".into(),
+                                        message: format!("Unknown interface `{}`", declared_str),
+                                        line: stmt.line,
+                                        column: stmt.col,
+                                        snippet: None,
+                                        hint: None,
+                                    }
+                                })?;
+                                // c) 拿 record 已定义的方法
+                                let got = self
+                                    .methods
+                                    .get(rec_name)
+                                    .map(|v| v.as_slice())
+                                    .unwrap_or(&[]);
+                                // d) 对比每条必须实现的方法签名
+                                for req in reqs {
+                                    let matched = got.iter().any(|m| {
+                                        m.name == req.name
+                                            && m.is_async == req.is_async
+                                            && m.return_type == req.return_type
+                                            && m.params.len() == req.params.len()
+                                            && m.params
+                                                .iter()
+                                                .zip(&req.params)
+                                                .all(|(a, b)| a.ty == b.ty)
+                                    });
+                                    if !matched {
+                                        return Err(PawError::Type {
+                                            file: self.current_file.clone(),
+                                            code: "E4007".into(),
+                                            message: format!(
+                                                "Method `{}` of record `{}` does not match interface `{}` signature",
+                                                req.name, rec_name, declared_str
+                                            ),
+                                            line: stmt.line,
+                                            column: stmt.col,
+                                            snippet: None,
+                                            hint: Some("Check parameters, return type and async".into()),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             StatementKind::FunDecl {
+                receiver,
                 name,
                 params,
                 return_type,
                 body,
-                is_async: _is_async,
+                is_async,
             } => {
                 // 切换到当前函数
                 let prev_fn = self.current_fn.clone();
                 self.current_fn = Some(name.clone());
 
                 // 在子作用域中检查函数体
-                let mut sub = TypeChecker::with_parent(&self.scope, &self.current_file);
+                let mut sub = TypeChecker::with_parent(self);
                 // 参数入作用域
                 for Param {
                     name: pn, ty: pty, ..
@@ -193,7 +460,7 @@ impl TypeChecker {
                         })?;
                 }
                 // 先检查函数体内部所有语句
-                sub.check_program(body)?;
+                sub.check_program(body, project_root)?;
 
                 // 如果声明了返回类型，就扫描所有 return 语句，确保类型一致或可提升到 Optional
                 if let Some(ret_ty_str) = return_type {
@@ -276,6 +543,73 @@ impl TypeChecker {
 
                 // 将子检查器收集到的 throwing_functions 合并回来
                 self.throwing_functions.extend(sub.throwing_functions);
+
+                if let Some(rec) = receiver {
+                    if let Some(ifaces) = self.record_impls.get(rec) {
+                        for iface in ifaces {
+                            // a) 拼全限定接口名
+                            let fq_iface = if self.current_package.is_empty() {
+                                iface.clone()
+                            } else {
+                                format!("{}.{}", self.current_package, iface)
+                            };
+                            // b) 拿接口的所有签名
+                            let reqs =
+                                self.interfaces
+                                    .get(&fq_iface)
+                                    .ok_or_else(|| PawError::Type {
+                                        file: self.current_file.clone(),
+                                        code: "E4006".into(),
+                                        message: format!("Unknown interface `{}`", iface),
+                                        line: stmt.line,
+                                        column: stmt.col,
+                                        snippet: None,
+                                        hint: None,
+                                    })?;
+                            // c) 找到本方法在接口里对应的签名
+                            let req = reqs.iter().find(|r| &r.name == name).ok_or_else(|| {
+                                PawError::Type {
+                                    file: self.current_file.clone(),
+                                    code: "E4004".into(),
+                                    message: format!(
+                                        "Method `{}` not declared in interface `{}`",
+                                        name, iface
+                                    ),
+                                    line: stmt.line,
+                                    column: stmt.col,
+                                    snippet: None,
+                                    hint: None,
+                                }
+                            })?;
+                            // d) 对比 async / return / params 数目和类型
+                            if req.is_async != *is_async
+                                || req.return_type.as_ref() != return_type.as_ref()
+                                || req.params.len() != params.len()
+                                || req
+                                    .params
+                                    .iter()
+                                    .zip(params.iter())
+                                    .any(|(r_param, a_param)| r_param.ty != a_param.ty)
+                            {
+                                return Err(PawError::Type {
+                                    file: self.current_file.clone(),
+                                    code: "E4007".into(),
+                                    message: format!(
+                                        "Signature of method `{}` does not match interface `{}`",
+                                        name, iface
+                                    ),
+                                    line: stmt.line,
+                                    column: stmt.col,
+                                    snippet: None,
+                                    hint: Some(
+                                        "Check async, return type and parameter types".into(),
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                }
+
                 self.current_fn = prev_fn;
             }
 
@@ -296,16 +630,16 @@ impl TypeChecker {
                         hint: None,
                     });
                 }
-                let mut child = TypeChecker::with_parent(&self.scope, &self.current_file);
-                child.check_program(body)?;
+                let mut child = TypeChecker::with_parent(self);
+                child.check_program(body, project_root)?;
                 if let Some(else_stmt) = else_branch {
-                    child.check_statement(else_stmt)?;
+                    child.check_statement(else_stmt, project_root)?;
                 }
             }
 
             StatementKind::LoopForever(body) => {
-                let mut child = TypeChecker::with_parent(&self.scope, &self.current_file);
-                child.check_program(body)?;
+                let mut child = TypeChecker::with_parent(self);
+                child.check_program(body, project_root)?;
             }
 
             StatementKind::LoopWhile { condition, body } => {
@@ -321,8 +655,8 @@ impl TypeChecker {
                         hint: None,
                     });
                 }
-                let mut child = TypeChecker::with_parent(&self.scope, &self.current_file);
-                child.check_program(body)?;
+                let mut child = TypeChecker::with_parent(self);
+                child.check_program(body, project_root)?;
             }
 
             StatementKind::LoopRange {
@@ -344,11 +678,11 @@ impl TypeChecker {
                         hint: None,
                     });
                 }
-                let mut child = TypeChecker::with_parent(&self.scope, &self.current_file);
+                let mut child = TypeChecker::with_parent(self);
                 child
                     .scope
                     .define(var, s.clone(), stmt.line, stmt.col, &self.current_file)?;
-                child.check_program(body)?;
+                child.check_program(body, project_root)?;
             }
 
             StatementKind::Return(opt) => {
@@ -376,7 +710,7 @@ impl TypeChecker {
                     }
                 };
                 // 3. 在子作用域中把循环变量绑定为 elem_ty
-                let mut child = TypeChecker::with_parent(&self.scope, &self.current_file);
+                let mut child = TypeChecker::with_parent(self);
                 child.scope.define(
                     var,
                     elem_ty.clone(),
@@ -385,7 +719,7 @@ impl TypeChecker {
                     &self.current_file,
                 )?;
                 // 4. 检查循环体
-                child.check_program(body)?;
+                child.check_program(body, project_root)?;
             }
 
             StatementKind::Throw(expr) => {
@@ -485,11 +819,11 @@ impl TypeChecker {
                 finally,
             } => {
                 // 先忽略 try 里抛出的错误，正常检查主体
-                let _ = TypeChecker::with_parent(&self.scope, &self.current_file)
-                    .check_program(body)?; // 或者你的批量检查方法名
+                let _ = TypeChecker::with_parent(self)
+                .check_program(body, project_root)?; // 或者你的批量检查方法名
 
                 // Catch 分支：在子作用域里把 err_name 定义成 String，然后检查 handler
-                let mut catch_checker = TypeChecker::with_parent(&self.scope, &self.current_file);
+                let mut catch_checker = TypeChecker::with_parent(self);
                 catch_checker
                     .scope
                     .define(
@@ -508,11 +842,13 @@ impl TypeChecker {
                         snippet: None,
                         hint: None,
                     })?;
-                catch_checker.check_program(handler)?;
+                catch_checker.check_program(handler, project_root)?;
 
                 // Finally 分支也要在新作用域检查
-                TypeChecker::with_parent(&self.scope, &self.current_file).check_program(finally)?;
+                TypeChecker::with_parent(self)
+                    .check_program(finally, project_root)?;
             }
+            _ => {}
         }
         Ok(())
     }

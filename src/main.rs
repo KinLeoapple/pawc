@@ -9,6 +9,7 @@ mod interpreter;
 mod lexer;
 mod parser;
 mod semantic;
+mod utils;
 
 pub static STACK_SIZE: OnceCell<usize> = OnceCell::with_value(1);
 

@@ -11,7 +11,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::{f64, fmt};
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub enum ValueInner {
     Int(i32),
     Long(i64),
@@ -21,7 +21,7 @@ pub enum ValueInner {
     Char(char),
     String(Arc<String>),
     Array(Arc<Vec<Value>>),
-    Record(Arc<AHashMap<String, Value>>),
+    Record(Arc<String>, Arc<AHashMap<String, Value>>),
     Module(Arc<AHashMap<String, Value>>),
     Function {
         name: Arc<String>,
@@ -30,7 +30,7 @@ pub enum ValueInner {
         env: Env,
         is_async: bool,
     },
-    Future(Arc<Mutex<Pin<Box<dyn Future<Output=Result<Value, PawError>> + Send>>>>),
+    Future(Arc<Mutex<Pin<Box<dyn Future<Output = Result<Value, PawError>> + Send>>>>),
     Null,
     Optional(Arc<Option<Value>>),
 }
@@ -38,33 +38,32 @@ pub enum ValueInner {
 impl fmt::Display for ValueInner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ValueInner::Int(i)       => write!(f, "{}", i),
-            ValueInner::Long(l)      => write!(f, "{}", l),
-            ValueInner::Float(fl)    => write!(f, "{}", fl),
-            ValueInner::Double(d)    => write!(f, "{}", d),
-            ValueInner::Bool(b)      => write!(f, "{}", b),
-            ValueInner::Char(c)      => write!(f, "{}", c),
-            ValueInner::String(s)    => write!(f, "{}", s),
-            ValueInner::Null         => write!(f, "Nopaw"),
-            ValueInner::Optional(o)  => {
+            ValueInner::Int(i) => write!(f, "{}", i),
+            ValueInner::Long(l) => write!(f, "{}", l),
+            ValueInner::Float(fl) => write!(f, "{}", fl),
+            ValueInner::Double(d) => write!(f, "{}", d),
+            ValueInner::Bool(b) => write!(f, "{}", b),
+            ValueInner::Char(c) => write!(f, "{}", c),
+            ValueInner::String(s) => write!(f, "{}", s),
+            ValueInner::Null => write!(f, "Nopaw"),
+            ValueInner::Optional(o) => {
                 if let Some(v) = &**o {
                     write!(f, "{}", v)
                 } else {
                     write!(f, "Nopaw")
                 }
             }
-            ValueInner::Array(arr)   => {
+            ValueInner::Array(arr) => {
                 let items: Vec<String> = arr.iter().map(|v| v.to_string()).collect();
                 write!(f, "[{}]", items.join(", "))
             }
-            ValueInner::Record(r)    => {
-                let fields: Vec<String> =
-                    r.iter().map(|(k,v)| format!("{}: {}", k, v)).collect();
-                write!(f, "{{{}}}", fields.join(", "))
+            ValueInner::Record(type_name, r) => {
+                let fields: Vec<String> = r.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+                write!(f, "{} {{ {} }}", type_name, fields.join(", "))
             }
-            ValueInner::Module(_)    => write!(f, "<module>"),
-            ValueInner::Function {..}=> write!(f, "<function>"),
-            ValueInner::Future {..}  => write!(f, "<future>"),
+            ValueInner::Module(_) => write!(f, "<module>"),
+            ValueInner::Function { .. } => write!(f, "<function>"),
+            ValueInner::Future { .. } => write!(f, "<future>"),
         }
     }
 }
@@ -104,8 +103,8 @@ impl Value {
     pub fn Array(v: Vec<Value>) -> Self {
         Value::from_inner(ValueInner::Array(Arc::new(v)))
     }
-    pub fn Record(m: AHashMap<String, Value>) -> Self {
-        Value::from_inner(ValueInner::Record(Arc::new(m)))
+    pub fn Record<S: Into<String>>(type_name: S, m: AHashMap<String, Value>) -> Self {
+        Value::from_inner(ValueInner::Record(Arc::new(type_name.into()), Arc::new(m)))
     }
     pub fn Module(m: AHashMap<String, Value>) -> Self {
         Value::from_inner(ValueInner::Module(Arc::new(m)))
@@ -135,12 +134,9 @@ impl Value {
     }
 
     //// Future 构造
-    pub fn Future(
-        fut: Pin<Box<dyn Future<Output = Result<Value, PawError>> + Send>>
-    ) -> Self {
+    pub fn Future(fut: Pin<Box<dyn Future<Output = Result<Value, PawError>> + Send>>) -> Self {
         Value::from_inner(ValueInner::Future(Arc::new(Mutex::new(fut))))
     }
-    
 }
 
 impl Value {
@@ -158,13 +154,15 @@ impl Value {
         use crate::interpreter::value::ValueInner;
         match Arc::try_unwrap(self.0) {
             Ok(inner) => match inner {
-                ValueInner::Array(v) => Some(Arc::try_unwrap(v).unwrap_or_else(|v_arc| (*v_arc).clone())),
+                ValueInner::Array(v) => {
+                    Some(Arc::try_unwrap(v).unwrap_or_else(|v_arc| (*v_arc).clone()))
+                }
                 _ => None,
             },
             Err(arc) => match &*arc {
                 ValueInner::Array(v) => Some((**v).clone()),
                 _ => None,
-            }
+            },
         }
     }
 }
@@ -175,7 +173,6 @@ impl From<String> for Value {
         Value::String(s)
     }
 }
-
 
 // From<&str> 转换
 impl From<&str> for Value {
@@ -203,7 +200,9 @@ impl PartialEq for Value {
             (Char(a), Char(b)) => a == b,
             (String(a), String(b)) => a == b,
             (Array(a), Array(b)) => a == b,
-            (Record(a), Record(b)) => a == b,
+            (Record(type1, map1), Record(type2, map2)) => {
+                type1 == type2 && map1 == map2
+            }
             (Module(a), Module(b)) => a == b,
             (Null, Null) => true,
             (Optional(a), Optional(b)) => a == b,

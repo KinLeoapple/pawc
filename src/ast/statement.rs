@@ -1,6 +1,7 @@
 // src/ast/statement.rs
 
 use crate::ast::expr::Expr;
+use crate::ast::method::MethodSig;
 use crate::ast::param::Param;
 
 /// 语句种类
@@ -50,6 +51,7 @@ pub enum StatementKind {
     },
 
     FunDecl {
+        receiver: Option<String>,
         name: String,
         params: Vec<Param>,
         is_async: bool,
@@ -70,9 +72,15 @@ pub enum StatementKind {
         module: Vec<String>,
         alias: String,
     },
+    InterfaceDecl {
+        name: String,
+        methods: Vec<MethodSig>,
+    },
+
     RecordDecl {
         name: String,
         fields: Vec<Param>,
+        impls: Vec<String>,
     },
 }
 

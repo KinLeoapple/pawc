@@ -9,6 +9,7 @@ use crate::interpreter::value::{Value, ValueInner};
 use crate::lexer::lexer::Lexer;
 use crate::parser::parser::Parser;
 use crate::semantic::type_checker::TypeChecker;
+use crate::utils::package::derive_package_name;
 use ahash::AHashMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ use vuot::{Stack, StacklessFn};
 
 pub struct Interpreter<'local> {
     pub engine: Engine,
-    pub statements: &'local [Statement]
+    pub statements: &'local [Statement],
 }
 
 impl<'a> StacklessFn<'a, Result<Option<Value>, PawError>> for Interpreter<'_> {
@@ -58,7 +59,8 @@ impl Engine {
     pub async fn eval_statement<'a>(
         &mut self,
         stack: Stack<'a>,
-        stmt: &Statement) -> Result<Option<Value>, PawError> {
+        stmt: &Statement,
+    ) -> Result<Option<Value>, PawError> {
         match &stmt.kind {
             StatementKind::Let { name, ty: _, value } => {
                 let v = stack.run(self.eval_expr(stack, value)).await?;
@@ -147,14 +149,17 @@ impl Engine {
                 let stmts = parser.parse_program()?;
 
                 // 4. 语义检查
-                let mut checker = TypeChecker::new(&*path.to_string_lossy());
-                checker.check_program(&stmts)?;
+                let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let pkg = derive_package_name(&path, &project_root);
+                let mut checker = TypeChecker::new(&*path.to_string_lossy(), &*pkg);
+                checker.check_program(&stmts, &project_root)?;
 
                 // 5. 执行模块
                 let module_env = Env::with_parent(&self.env);
-                let mut module_interp =
-                    Engine::new(module_env.clone(), &*path.to_string_lossy());
-                let _ = stack.run(module_interp.eval_statements(stack, &stmts)).await?;
+                let mut module_interp = Engine::new(module_env.clone(), &*path.to_string_lossy());
+                let _ = stack
+                    .run(module_interp.eval_statements(stack, &stmts))
+                    .await?;
 
                 // 6. 收集子环境所有顶层绑定，打包成 Module
                 let module_val = {
@@ -286,6 +291,7 @@ impl Engine {
             }
 
             StatementKind::FunDecl {
+                receiver: _receiver,
                 name,
                 params,
                 return_type: _,
@@ -331,18 +337,24 @@ impl Engine {
                             ci.env.define(err_name.clone(), Value::String(message));
                             let catch_r = stack.run(ci.eval_statements(stack, handler)).await?;
                             // finally
-                            let _ = stack.run(Engine::new(Env::with_parent(&self.env), &self.file)
-                                .eval_statements(stack, finally))
+                            let _ = stack
+                                .run(
+                                    Engine::new(Env::with_parent(&self.env), &self.file)
+                                        .eval_statements(stack, finally),
+                                )
                                 .await?;
                             Ok(catch_r)
                         } else {
                             Err(err)
-                        }
+                        };
                     }
                 }
                 // finally after normal
-                let _ = stack.run(Engine::new(Env::with_parent(&self.env), &self.file)
-                    .eval_statements(stack, finally))
+                let _ = stack
+                    .run(
+                        Engine::new(Env::with_parent(&self.env), &self.file)
+                            .eval_statements(stack, finally),
+                    )
                     .await?;
                 Ok(None)
             }
@@ -360,6 +372,10 @@ impl Engine {
                     snippet: None,
                     hint: Some("Uncaught exception".into()),
                 })
+            }
+            StatementKind::InterfaceDecl { .. } => {
+                // 接口声明在运行时不产生效果
+                Ok(None)
             }
         }
     }
@@ -588,20 +604,23 @@ impl Engine {
                 }
 
                 // 2. 查找函数
-                let func_val = self.env.get(name).ok_or_else(|| PawError::UndefinedVariable {
-                    file: self.file.clone(),
-                    code: "E4001",
-                    name: name.clone(),
-                    line: expr.line,
-                    column: expr.col,
-                    snippet: None,
-                    hint: Some("Did you declare this function before use?".into()),
-                })?;
+                let func_val = self
+                    .env
+                    .get(name)
+                    .ok_or_else(|| PawError::UndefinedVariable {
+                        file: self.file.clone(),
+                        code: "E4001",
+                        name: name.clone(),
+                        line: expr.line,
+                        column: expr.col,
+                        snippet: None,
+                        hint: Some("Did you declare this function before use?".into()),
+                    })?;
 
                 // 3. 解出内部 ValueInner
                 use crate::interpreter::value::{Value, ValueInner};
                 let inner_arc = match func_val {
-                    Value(inner) => inner,         // 解出 Arc<ValueInner>
+                    Value(inner) => inner, // 解出 Arc<ValueInner>
                 };
 
                 // 4. 匹配 Function 分支
@@ -619,7 +638,9 @@ impl Engine {
                             for (p, v) in params.iter().zip(arg_vals) {
                                 new_interp.env.define(p.name.clone(), v);
                             }
-                            if let Some(ret) = stack.run(new_interp.eval_statements(stack, body)).await? {
+                            if let Some(ret) =
+                                stack.run(new_interp.eval_statements(stack, body)).await?
+                            {
                                 Ok(ret)
                             } else {
                                 Ok(Value::Null())
@@ -637,7 +658,7 @@ impl Engine {
                         }
                     }
 
-                    // —— 不是函数，直接报错 —— 
+                    // —— 不是函数，直接报错 ——
                     _ => Err(PawError::Runtime {
                         file: self.file.clone(),
                         code: "E4002".into(),
@@ -649,7 +670,6 @@ impl Engine {
                     }),
                 }
             }
-
 
             ExprKind::Cast {
                 expr: inner,
@@ -680,9 +700,7 @@ impl Engine {
                     (ValueInner::Array(v_arc), ValueInner::Int(i)) => {
                         // v_arc: &Arc<Vec<Value>>
                         let vec = &**v_arc;
-                        vec.get(*i as usize)
-                            .cloned()
-                            .unwrap_or(Value::Null())
+                        vec.get(*i as usize).cloned().unwrap_or(Value::Null())
                     }
                     // 其余情况，都抛运行时错误
                     _ => {
@@ -701,13 +719,13 @@ impl Engine {
                 Ok(result)
             }
 
-            ExprKind::RecordInit { name: _, fields } => {
+            ExprKind::RecordInit { name, fields } => {
                 let mut map = AHashMap::new();
                 for (fname, fexpr) in fields {
                     let v = stack.run(self.eval_expr(stack, fexpr)).await?;
                     map.insert(fname.clone(), v);
                 }
-                Ok(Value::Record(map))
+                Ok(Value::Record(name, map))
             }
 
             ExprKind::Await { expr: inner } => {
@@ -738,7 +756,7 @@ impl Engine {
 
                 // 2. 解出内部的 ValueInner
                 use crate::interpreter::value::ValueInner;
-                if let ValueInner::Record(map_arc) = &*obj_val.0 {
+                if let ValueInner::Record(_type_name, map_arc) = &*obj_val.0 {
                     // map_arc: &Arc<AHashMap<String, Value>>
                     let map: &AHashMap<String, Value> = &**map_arc;
 
@@ -940,7 +958,9 @@ impl Engine {
                                         for (p, v) in params.iter().zip(arg_vals.into_iter()) {
                                             new_i.env.define(p.name.clone(), v);
                                         }
-                                        if let Some(ret) = stack.run(new_i.eval_statements(stack, &body)).await? {
+                                        if let Some(ret) =
+                                            stack.run(new_i.eval_statements(stack, &body)).await?
+                                        {
                                             Ok(ret)
                                         } else {
                                             Ok(Value::Null())
@@ -954,7 +974,8 @@ impl Engine {
                                         for (p, v) in params.iter().zip(arg_vals.into_iter()) {
                                             child.env.define(p.name.clone(), v);
                                         }
-                                        let res = stack.run(child.eval_statements(stack, &body)).await?;
+                                        let res =
+                                            stack.run(child.eval_statements(stack, &body)).await?;
                                         self.env = saved;
                                         Ok(res.unwrap_or(Value::Null()))
                                     }
@@ -983,6 +1004,84 @@ impl Engine {
                                     snippet: None,
                                     hint: None,
                                 })
+                            }
+                        }
+
+                        ValueInner::Record(type_name_arc, map_arc) => {
+                            // a) “this” 就是整个 record 值
+                            let this = Value::from_inner(ValueInner::Record(
+                                type_name_arc.clone(),
+                                map_arc.clone(),
+                            ));
+
+                            // b) 构造自由函数名，带上类型名（包名如果需要就加上）
+                            //    例如：Person.greet 或 shapes.Person.greet
+                            let fn_name = format!("{}.{}", type_name_arc, method.as_str());
+
+                            // c) 从环境里取出这个函数
+                            let func_val = self.env.get(&fn_name).ok_or_else(|| {
+                                PawError::UndefinedVariable {
+                                    file: self.file.clone(),
+                                    code: "E4001".into(),
+                                    name: fn_name.clone(),
+                                    line: expr.line,
+                                    column: expr.col,
+                                    snippet: None,
+                                    hint: Some(
+                                        "Did you declare this method on that record type?".into(),
+                                    ),
+                                }
+                            })?;
+
+                            // d) 把 this 放到参数列表最前面
+                            let mut all_args = Vec::with_capacity(arg_vals.len() + 1);
+                            all_args.push(this);
+                            all_args.extend(arg_vals.into_iter());
+
+                            // e) 重用你原来的 Call 逻辑来执行这个函数
+                            //    可以把下面这段提取成一个小函数 call_free_function(stack, func_val, all_args, expr)
+                            match &*func_val.0 {
+                                ValueInner::Function {
+                                    params,
+                                    body,
+                                    env: fenv,
+                                    is_async,
+                                    ..
+                                } => {
+                                    let mut new_engine =
+                                        Engine::new(Env::with_parent(fenv), &self.file);
+                                    // 绑定参数
+                                    for (p, v) in params.iter().zip(all_args) {
+                                        new_engine.env.define(p.name.clone(), v);
+                                    }
+                                    // 异步 vs 同步
+                                    if *is_async {
+                                        if let Some(ret) = stack
+                                            .run(new_engine.eval_statements(stack, body))
+                                            .await?
+                                        {
+                                            Ok(ret)
+                                        } else {
+                                            Ok(Value::Null())
+                                        }
+                                    } else {
+                                        let saved = self.env.clone();
+                                        let res = stack
+                                            .run(new_engine.eval_statements(stack, body))
+                                            .await?;
+                                        self.env = saved;
+                                        Ok(res.unwrap_or(Value::Null()))
+                                    }
+                                }
+                                _ => Err(PawError::Runtime {
+                                    file: self.file.clone(),
+                                    code: "E4002".into(),
+                                    message: format!("{} is not callable", fn_name),
+                                    line: expr.line,
+                                    column: expr.col,
+                                    snippet: None,
+                                    hint: None,
+                                }),
                             }
                         }
 

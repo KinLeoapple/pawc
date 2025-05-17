@@ -1,11 +1,10 @@
 // src/parser.rs
 
 use crate::ast::expr::{BinaryOp, Expr, ExprKind};
-use crate::ast::method::Method;
+use crate::ast::method::{Method, MethodSig};
 use crate::ast::param::Param;
 use crate::ast::statement::{Statement, StatementKind};
 use crate::error::error::PawError;
-use crate::lexer::lexer::Lexer;
 use crate::lexer::token::{Token, TokenKind};
 
 pub struct Parser {
@@ -166,6 +165,9 @@ impl Parser {
         }
         let (line, col) = self.wrap_position();
 
+        if self.peek_keyword("tail") {
+            return self.parse_interface_decl();
+        }
         if self.peek_keyword("record") {
             return self.parse_record_decl();
         }
@@ -229,23 +231,43 @@ impl Parser {
             self.expect_keyword("async")?;
         }
         self.expect_keyword("fun")?;
+
+        // —— 可选接收者 (TypeName) ——
+        let receiver = if self.peek_token(TokenKind::LParen) {
+            self.next(); // consume '('
+            let recv = self.expect_identifier()?;
+            self.expect_token(TokenKind::RParen)?;
+            Some(recv)
+        } else {
+            None
+        };
+
+        // 函数名
         let name = self.expect_identifier()?;
+
+        // 参数列表
         self.expect_token(TokenKind::LParen)?;
         let params = self.parse_params()?;
         self.expect_token(TokenKind::RParen)?;
+
+        // 可选返回类型
         let return_type = if self.peek_token(TokenKind::Colon) {
             self.next();
             Some(self.parse_type()?)
         } else {
             None
         };
+
+        // 函数体
         let body = self.parse_block()?;
+
         Ok(Statement::new(
             StatementKind::FunDecl {
+                receiver,
                 name,
                 params,
-                return_type,
                 is_async,
+                return_type,
                 body,
             },
             line,
@@ -253,11 +275,100 @@ impl Parser {
         ))
     }
 
+    /// 解析 `tail Name { … }`
+    fn parse_interface_decl(&mut self) -> Result<Statement, PawError> {
+        let (line, col) = self.wrap_position();
+        // 消耗 `tail`
+        self.expect_keyword("tail")?;
+        // 接口名
+        let name = self.expect_identifier()?;
+        // 消耗 `{`
+        self.expect_token(TokenKind::LBrace)?;
+        // 按“方法签名, 方法签名, …”格式读取，并允许尾随逗号
+        let mut methods = Vec::new();
+        loop {
+            // 1. 读取一个方法签名
+            methods.push(self.parse_method_sig()?);
+
+            // 2. 签名后必须有逗号，否则说明列表结束
+            if self.peek_token(TokenKind::Comma) {
+                self.next(); // 消耗逗号
+
+                // 2a. 如果逗号后立刻是 '}'，也当结束
+                if self.peek_token(TokenKind::RBrace) {
+                    break;
+                }
+                // 否则继续读下一个方法
+                continue;
+            }
+            // 没有逗号，结束循环
+            break;
+        }
+        // 消耗 `}`
+        self.expect_token(TokenKind::RBrace)?;
+        Ok(Statement::new(
+            StatementKind::InterfaceDecl { name, methods },
+            line,
+            col,
+        ))
+    }
+
+    /// 解析接口里的一行方法签名，形如
+    ///   async? foo(a: A, b: B): R;
+    fn parse_method_sig(&mut self) -> Result<MethodSig, PawError> {
+        let (line, col) = self.wrap_position();
+        // 可选 async
+        let is_async = if self.peek_keyword("async") {
+            self.next();
+            true
+        } else {
+            false
+        };
+        // 方法名
+        let name = self.expect_identifier()?;
+        // 参数列表
+        self.expect_token(TokenKind::LParen)?;
+        let params = self.parse_params()?;
+        self.expect_token(TokenKind::RParen)?;
+        // 可选返回类型
+        let return_type = if self.peek_token(TokenKind::Colon) {
+            self.next();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        // 方法签名以分号结束
+        self.expect_token(TokenKind::Comma)?;
+        Ok(MethodSig {
+            name,
+            params,
+            is_async,
+            return_type,
+        })
+    }
+
     /// 解析 `record Name { field: Type, ... }` 声明
     fn parse_record_decl(&mut self) -> Result<Statement, PawError> {
         let (line, col) = self.wrap_position();
         self.expect_keyword("record")?;
         let name = self.expect_identifier()?;
+        // —— 可选的接口实现列表 ——
+        let mut impls = Vec::new();
+        if self.peek_token(TokenKind::LParen) {
+            self.next(); // consume '('
+            while !self.peek_token(TokenKind::RParen) {
+                // 每个接口名
+                let iface = self.expect_identifier()?;
+                impls.push(iface);
+                // 逗号分隔
+                if self.peek_token(TokenKind::Comma) {
+                    self.next();
+                } else {
+                    break;
+                }
+            }
+            self.expect_token(TokenKind::RParen)?;
+        }
         self.expect_token(TokenKind::LBrace)?;
         let mut fields = Vec::new();
         while !self.peek_token(TokenKind::RBrace) {
@@ -271,7 +382,7 @@ impl Parser {
         }
         self.expect_token(TokenKind::RBrace)?;
         Ok(Statement::new(
-            StatementKind::RecordDecl { name, fields },
+            StatementKind::RecordDecl { name, fields, impls },
             line,
             col,
         ))
@@ -579,7 +690,7 @@ impl Parser {
     /// 字面量、变量、调用、索引、RecordInit、属性访问…
     fn parse_primary(&mut self) -> Result<Expr, PawError> {
         let (line, col) = self.wrap_position();
-        
+
         // nopaw 字面量
         if self.peek_keyword("nopaw") {
             self.next();
