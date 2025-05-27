@@ -1,0 +1,256 @@
+// PawScript Grammar for Pest
+
+// -----------------------------------------------------------------------------
+// Boilerplate: WHITESPACE and COMMENT are special Pest rules for implicit skipping
+// Placed at the TOP of the grammar.
+// -----------------------------------------------------------------------------
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+COMMENT    = _{ "#" ~ (!NEWLINE ~ ANY)* }
+
+// -----------------------------------------------------------------------------
+// Literals
+// -----------------------------------------------------------------------------
+string_char = _{ !("\"" | "\\") ~ ANY }
+escape_sequence = _{ "\\" ~ ("\"" | "\\" | "n" | "r" | "t" | "0" | "u{" ~ hex_digit{1,6} ~ "}") }
+string_interpolation = _{ "${" ~ expression ~ "}" }
+string_content = _{ (string_char | escape_sequence | string_interpolation)* }
+string_literal = @{ "\"" ~ string_content ~ "\"" }
+
+character_literal = @{ "'" ~ (escape_sequence | !("'" | "\\") ~ ANY) ~ "'" }
+
+digit = _{ '0'..'9' }
+hex_digit = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
+integer_literal = @{ digit+ }
+long_literal = @{ digit+ ~ ("L" | "l") }
+float_literal = @{ digit+ ~ "." ~ digit* ~ (("E" | "e") ~ ("+" | "-")? ~ digit+)? ~ ("F" | "f")? }
+double_literal = @{ digit+ ~ "." ~ digit* ~ (("E" | "e") ~ ("+" | "-")? ~ digit+)? ~ ("D" | "d")? }
+
+boolean_literal = @{ "true" | "false" }
+null_literal    = @{ "nopaw" }
+array_literal   =  { "[" ~ (expression ~ ("," ~ expression)*)? ~ "]" }
+
+// -----------------------------------------------------------------------------
+// Identifiers & Keywords
+// -----------------------------------------------------------------------------
+identifier  = @{ !KEYWORD ~ ident_start ~ ident_part* }
+ident_start = _{ 'a'..'z' | 'A'..'Z' | "_" }
+ident_part  = _{ ident_start | '0'..'9' }
+
+KEYWORD_LET      = { "let" }
+KEYWORD_IF       = { "if" }
+KEYWORD_ELSE     = { "else" }
+KEYWORD_LOOP     = { "loop" }
+KEYWORD_IN       = { "in" }
+KEYWORD_FUN      = { "fun" }
+KEYWORD_ASYNC    = { "async" }
+KEYWORD_RETURN   = { "return" }
+KEYWORD_RECORD   = { "record" }
+KEYWORD_AS       = { "as" }
+KEYWORD_BARK     = { "bark" }
+KEYWORD_SNIFF    = { "sniff" }
+KEYWORD_SNATCH   = { "snatch" }
+KEYWORD_LASTLY   = { "lastly" }
+KEYWORD_IMPORT   = { "import" }
+KEYWORD_SAY      = { "say" }
+KEYWORD_ASK      = { "ask" }
+KEYWORD_AWAIT    = { "await" }
+KEYWORD_BREAK    = { "break" }
+KEYWORD_CONTINUE = { "continue" }
+KEYWORD_TAIL     = { "tail" }
+
+KEYWORD_NULL     = { "nopaw" }
+KEYWORD_ANY      = { "Any" }
+KEYWORD_INT      = { "Int" }
+KEYWORD_LONG     = { "Long" }
+KEYWORD_FLOAT    = { "Float" }
+KEYWORD_DOUBLE   = { "Double" }
+KEYWORD_BOOL     = { "Bool" }
+KEYWORD_CHAR     = { "Char" }
+KEYWORD_STRING   = { "String" }
+KEYWORD_ARRAY    = { "Array" }
+KEYWORD_OPTIONAL = { "Optional" }
+
+KEYWORD = _{
+    KEYWORD_LET | KEYWORD_IF | KEYWORD_ELSE | KEYWORD_LOOP |
+    KEYWORD_IN | KEYWORD_FUN | KEYWORD_ASYNC | KEYWORD_RETURN | KEYWORD_RECORD |
+    KEYWORD_AS | KEYWORD_BARK | KEYWORD_SNIFF | KEYWORD_SNATCH | KEYWORD_LASTLY |
+    KEYWORD_IMPORT | KEYWORD_SAY | KEYWORD_ASK | KEYWORD_AWAIT | KEYWORD_BREAK |
+    KEYWORD_CONTINUE | KEYWORD_TAIL | KEYWORD_NULL |
+    KEYWORD_ANY | KEYWORD_INT | KEYWORD_LONG | KEYWORD_FLOAT | KEYWORD_DOUBLE |
+    KEYWORD_BOOL | KEYWORD_CHAR | KEYWORD_STRING | KEYWORD_ARRAY | KEYWORD_OPTIONAL |
+    boolean_literal
+}
+
+// -----------------------------------------------------------------------------
+// Types (MODIFIED for robust optional handling)
+// -----------------------------------------------------------------------------
+optional_marker = _{ "?" }
+
+generic_type_name_constructor = { KEYWORD_ARRAY | KEYWORD_OPTIONAL }
+generic_type_def = { generic_type_name_constructor ~ "<" ~ type_name ~ ">" }
+// core_type represents a non-optional, possibly generic or primitive type, or an identifier.
+// It uses a recursive definition for type_name within generic_type_def.
+core_type = _{
+    generic_type_def |
+    KEYWORD_INT |
+    KEYWORD_LONG |
+    KEYWORD_FLOAT |
+    KEYWORD_DOUBLE |
+    KEYWORD_BOOL |
+    KEYWORD_CHAR |
+    KEYWORD_STRING |
+    KEYWORD_ANY |
+    identifier  // For custom record types like 'Point'
+}
+
+// type_name is a core_type followed by an optional '?' marker.
+// This structure ensures that '?' is only considered after a complete core_type has been parsed.
+type_name = _{ core_type ~ optional_marker? }
+
+
+// -----------------------------------------------------------------------------
+// Expressions (Operator precedence tiers are atomic)
+// -----------------------------------------------------------------------------
+expression = { logical_or_expression }
+
+logical_or_operator  = { "||" }
+logical_or_expression = { logical_and_expression ~ (logical_or_operator ~ logical_and_expression)* }
+
+logical_and_operator = { "&&" }
+logical_and_expression = { equality_expression ~ (logical_and_operator ~ equality_expression)* }
+
+equality_operator = { "==" | "!=" }
+equality_expression = { comparison_expression ~ (equality_operator ~ comparison_expression)* }
+
+comparison_operator = { ">=" | "<=" | ">" | "<" }
+comparison_expression = { additive_expression ~ (comparison_operator ~ additive_expression)* }
+
+additive_operator = { "+" | "-" }
+additive_expression = { multiplicative_expression ~ (additive_operator ~ multiplicative_expression)* }
+
+multiplicative_operator = { "*" | "/" | "%" }
+multiplicative_expression = { unary_expression ~ (multiplicative_operator ~ unary_expression)* }
+
+unary_operator = { "!" | "+" | "-" }
+unary_expression = _{ (unary_operator ~ unary_expression) | cast_expression }
+cast_expression = _{ await_expression ~ (KEYWORD_AS ~ type_name)? }
+await_expression = _{ (KEYWORD_AWAIT ~ postfix_expression) | postfix_expression }
+
+member_access = _{ "." ~ identifier }
+array_index   = _{ "[" ~ expression ~ "]" }
+argument_list = _{ (expression ~ ("," ~ expression)*)? }
+function_call = _{ "(" ~ argument_list ~ ")" }
+length_access = _{ ".length()" }
+postfix_expression = _{ primary_expression ~ (member_access | array_index | function_call | length_access)* }
+
+record_init_field = _{ identifier ~ ":" ~ expression }
+record_init = { identifier ~ "{" ~ (record_init_field ~ ("," ~ record_init_field)*)? ~ "}" }
+
+primary_expression = _{
+    boolean_literal | null_literal | integer_literal | long_literal | float_literal | double_literal |
+    string_literal | character_literal |
+    record_init |
+    array_literal |
+    "(" ~ expression ~ ")" |
+    identifier
+}
+literal = _{ primary_expression }
+
+// -----------------------------------------------------------------------------
+// Statements
+// -----------------------------------------------------------------------------
+code_body = _{ block | statement }
+block = _{ "{" ~ statement* ~ "}" }
+
+statement = _{
+    variable_declaration |
+    variable_input_assignment |
+    assignment_statement |
+    say_statement |
+    ask_statement_simple |
+    return_statement |
+    if_statement |
+    loop_statement |
+    error_handling_statement |
+    bark_statement |
+    break_statement |
+    continue_statement |
+    import_statement |
+    expression_statement
+}
+
+variable_declaration = _{ KEYWORD_LET ~ identifier ~ (":" ~ type_name)? ~ "=" ~ expression }
+variable_input_assignment = _{ KEYWORD_LET ~ identifier ~ (":" ~ type_name)? ~ "<-" ~ ask_expression }
+
+assignment_statement = _{ identifier ~ "=" ~ expression }
+
+say_statement = _{ KEYWORD_SAY ~ expression }
+ask_expression = _{ KEYWORD_ASK ~ expression }
+ask_statement_simple = _{ ask_expression }
+
+
+return_statement = _{ KEYWORD_RETURN ~ expression? }
+
+if_statement = _{
+    KEYWORD_IF ~ expression ~ code_body ~
+    (KEYWORD_ELSE ~ KEYWORD_IF ~ expression ~ code_body)* ~
+    (KEYWORD_ELSE ~ code_body)?
+}
+
+loop_range_expression = _{ expression ~ ".." ~ expression }
+loop_iterable_expression = _{ expression }
+loop_for_in_variant = _{ identifier ~ KEYWORD_IN ~ (loop_range_expression | loop_iterable_expression) ~ code_body }
+loop_conditional_variant = _{ expression ~ code_body }
+loop_infinite_variant = _{ code_body }
+loop_variants = _{
+    loop_for_in_variant |
+    loop_conditional_variant |
+    loop_infinite_variant
+}
+loop_statement = _{ KEYWORD_LOOP ~ loop_variants }
+
+break_statement    = _{ KEYWORD_BREAK }
+continue_statement = _{ KEYWORD_CONTINUE }
+
+snatch_clause = _{ KEYWORD_SNATCH ~ "(" ~ identifier ~ ")" ~ code_body }
+lastly_clause = _{ KEYWORD_LASTLY ~ code_body }
+error_handling_statement = _{ KEYWORD_SNIFF ~ code_body ~ snatch_clause* ~ lastly_clause? }
+bark_statement = _{ KEYWORD_BARK ~ expression }
+
+import_path = _{ identifier ~ ("." ~ identifier)* }
+import_statement = _{ KEYWORD_IMPORT ~ import_path ~ (KEYWORD_AS ~ identifier)? }
+
+expression_statement = _{ expression }
+
+// -----------------------------------------------------------------------------
+// Top-Level Declarations
+// -----------------------------------------------------------------------------
+param_decl = _{ identifier ~ ":" ~ type_name }
+param_list = _{ (param_decl ~ ("," ~ param_decl)*)? }
+
+function_definition = _{
+    (KEYWORD_ASYNC ~ KEYWORD_FUN | KEYWORD_FUN) ~
+    identifier ~
+    "(" ~ param_list ~ ")" ~
+    (":" ~ type_name)? ~
+    code_body
+}
+
+record_field_def = _{ identifier ~ ":" ~ type_name }
+record_member = _{ record_field_def | function_definition }
+record_implements_clause = _{ ":" ~ type_name ~ ("," ~ type_name)* }
+record_definition = _{ KEYWORD_RECORD ~ identifier ~ record_implements_clause? ~ "{" ~ record_member* ~ "}" }
+
+protocol_method_signature = _{
+    (KEYWORD_ASYNC ~ KEYWORD_FUN | KEYWORD_FUN) ~
+    identifier ~
+    "(" ~ param_list ~ ")" ~
+    (":" ~ type_name)?
+}
+protocol_definition = _{ KEYWORD_TAIL ~ identifier ~ "{" ~ protocol_method_signature* ~ "}" }
+
+// -----------------------------------------------------------------------------
+// Program Structure (Relying purely on implicit WHITESPACE & COMMENT)
+// -----------------------------------------------------------------------------
+top_level_item = _{ statement | function_definition | record_definition | protocol_definition }
+program = _{ SOI ~ top_level_item* ~ EOI }
