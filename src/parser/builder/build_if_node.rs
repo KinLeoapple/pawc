@@ -18,7 +18,7 @@ pub fn build_if_node<'a>(pair: Pair<'a, Rule>) -> Result<StatementNode<'a>, AstB
 
     // 检查是否有 else/else if
     let mut else_block = None;
-    let mut pending = inner.peek();
+    let pending = inner.peek();
 
     if let Some(peek_pair) = pending {
         match peek_pair.as_rule() {

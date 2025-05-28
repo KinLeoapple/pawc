@@ -1,6 +1,6 @@
 use crate::ast::ast::TopLevelItem;
 use crate::parser::builder::build_toplevel_items::build_toplevel_items;
-use pest::iterators::{Pair, Pairs};
+use pest::iterators::Pairs;
 use pest_derive::Parser;
 
 #[derive(Parser)]

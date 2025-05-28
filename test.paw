@@ -1,2 +1,21 @@
-let a: Int = 1
-say "hi"
+import foo as f
+
+record Point: Drawable {
+    x: Int,
+    y: Int
+    fun move(dx: Int, dy: Int): Void {
+        x = x + dx
+        y = y + dy
+    }
+}
+
+tail Drawable {
+    fun draw(): Void
+}
+
+fun greet(name: String): String {
+    say "Hello, ${name}!"
+    return "done"
+}
+
+say "ready"

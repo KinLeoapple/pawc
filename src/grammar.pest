@@ -90,7 +90,7 @@ generic_type_name_constructor = { KEYWORD_ARRAY | KEYWORD_OPTIONAL }
 generic_type_def = { generic_type_name_constructor ~ "<" ~ type_name ~ ">" }
 // core_type represents a non-optional, possibly generic or primitive type, or an identifier.
 // It uses a recursive definition for type_name within generic_type_def.
-core_type = _{
+core_type = {
     generic_type_def |
     KEYWORD_INT |
     KEYWORD_LONG |
@@ -105,7 +105,7 @@ core_type = _{
 
 // type_name is a core_type followed by an optional '?' marker.
 // This structure ensures that '?' is only considered after a complete core_type has been parsed.
-type_name = _{ core_type ~ optional_marker? }
+type_name = { core_type ~ optional_marker? }
 
 // -----------------------------------------------------------------------------
 // Expressions (Operator precedence tiers are atomic)
@@ -178,14 +178,14 @@ statement = {
     expression_statement
 }
 
-variable_declaration = _{ KEYWORD_LET ~ identifier ~ (":" ~ type_name)? ~ "=" ~ expression }
-variable_input_assignment = _{ KEYWORD_LET ~ identifier ~ (":" ~ type_name)? ~ "<-" ~ ask_expression }
+variable_declaration = { KEYWORD_LET ~ identifier ~ (":" ~ type_name)? ~ "=" ~ expression }
+variable_input_assignment = { KEYWORD_LET ~ identifier ~ (":" ~ type_name)? ~ "<-" ~ ask_expression }
 
-assignment_statement = _{ identifier ~ "=" ~ expression }
+assignment_statement = { identifier ~ "=" ~ expression }
 
-say_statement = _{ KEYWORD_SAY ~ expression }
-ask_expression = _{ KEYWORD_ASK ~ expression }
-ask_statement_simple = _{ ask_expression }
+say_statement = { KEYWORD_SAY ~ expression }
+ask_expression = { KEYWORD_ASK ~ expression }
+ask_statement_simple = { ask_expression }
 
 
 return_statement = _{ KEYWORD_RETURN ~ expression? }
@@ -196,38 +196,38 @@ if_statement = _{
     (KEYWORD_ELSE ~ code_body)?
 }
 
-loop_range_expression = _{ expression ~ ".." ~ expression }
-loop_iterable_expression = _{ expression }
-loop_for_in_variant = _{ identifier ~ KEYWORD_IN ~ (loop_range_expression | loop_iterable_expression) ~ code_body }
-loop_conditional_variant = _{ expression ~ code_body }
-loop_infinite_variant = _{ code_body }
-loop_variants = _{
+loop_range_expression = { expression ~ ".." ~ expression }
+loop_iterable_expression = { expression }
+loop_for_in_variant = { identifier ~ KEYWORD_IN ~ (loop_range_expression | loop_iterable_expression) ~ code_body }
+loop_conditional_variant = { expression ~ code_body }
+loop_infinite_variant = { code_body }
+loop_variants = {
     loop_for_in_variant |
     loop_conditional_variant |
     loop_infinite_variant
 }
-loop_statement = _{ KEYWORD_LOOP ~ loop_variants }
+loop_statement = { KEYWORD_LOOP ~ loop_variants }
 
-break_statement    = _{ KEYWORD_BREAK }
-continue_statement = _{ KEYWORD_CONTINUE }
+break_statement    = { KEYWORD_BREAK }
+continue_statement = { KEYWORD_CONTINUE }
 
-snatch_clause = _{ KEYWORD_SNATCH ~ "(" ~ identifier ~ ")" ~ code_body }
-lastly_clause = _{ KEYWORD_LASTLY ~ code_body }
-error_handling_statement = _{ KEYWORD_SNIFF ~ code_body ~ snatch_clause* ~ lastly_clause? }
-bark_statement = _{ KEYWORD_BARK ~ expression }
+snatch_clause = { KEYWORD_SNATCH ~ "(" ~ identifier ~ ")" ~ code_body }
+lastly_clause = { KEYWORD_LASTLY ~ code_body }
+error_handling_statement = { KEYWORD_SNIFF ~ code_body ~ snatch_clause* ~ lastly_clause? }
+bark_statement = { KEYWORD_BARK ~ expression }
 
-import_path = _{ identifier ~ ("." ~ identifier)* }
-import_statement = _{ KEYWORD_IMPORT ~ import_path ~ (KEYWORD_AS ~ identifier)? }
+import_path = { identifier ~ ("." ~ identifier)* }
+import_statement = { KEYWORD_IMPORT ~ import_path ~ (KEYWORD_AS ~ identifier)? }
 
-expression_statement = _{ expression }
+expression_statement = { expression }
 
 // -----------------------------------------------------------------------------
 // Top-Level Declarations
 // -----------------------------------------------------------------------------
-param_decl = _{ identifier ~ ":" ~ type_name }
-param_list = _{ (param_decl ~ ("," ~ param_decl)*)? }
+param_decl = { identifier ~ ":" ~ type_name }
+param_list = { (param_decl ~ ("," ~ param_decl)*)? }
 
-function_definition = _{
+function_definition = {
     (KEYWORD_ASYNC ~ KEYWORD_FUN | KEYWORD_FUN) ~
     identifier ~
     "(" ~ param_list ~ ")" ~
@@ -235,20 +235,20 @@ function_definition = _{
     code_body
 }
 
-record_field_def = _{ identifier ~ ":" ~ type_name }
-record_member = _{ record_field_def | function_definition }
-record_implements_clause = _{ ":" ~ type_name ~ ("," ~ type_name)* }
-record_definition = _{
-    KEYWORD_RECORD ~ identifier ~ record_implements_clause? ~ "{" ~ (record_member ~ ("," ~ record_member)* ~ ","?)? ~ "}"
+record_field_def = { identifier ~ ":" ~ type_name }
+record_member = { record_field_def | function_definition }
+record_implements_clause = { ":" ~ type_name ~ ("," ~ type_name)* }
+record_definition = {
+    KEYWORD_RECORD ~ identifier ~ record_implements_clause? ~ "{" ~ record_member ~ (","? ~ record_member)* ~ "}"
 }
 
-protocol_method_signature = _{
+protocol_method_signature = {
     (KEYWORD_ASYNC ~ KEYWORD_FUN | KEYWORD_FUN) ~
     identifier ~
     "(" ~ param_list ~ ")" ~
     (":" ~ type_name)?
 }
-protocol_definition = _{ KEYWORD_TAIL ~ identifier ~ "{" ~ protocol_method_signature* ~ "}" }
+protocol_definition = { KEYWORD_TAIL ~ identifier ~ "{" ~ protocol_method_signature* ~ "}" }
 
 // -----------------------------------------------------------------------------
 // Program Structure (Relying purely on implicit WHITESPACE & COMMENT)

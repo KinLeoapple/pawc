@@ -1,50 +1,63 @@
-use pest::iterators::Pair;
 use crate::ast::ast::{IdentifierNode, ImportNode, ModulePath};
 use crate::parser::parser::{AstBuilderError, Rule};
+use pest::iterators::Pair;
 
 pub fn build_import_node<'a>(pair: Pair<'a, Rule>) -> Result<ImportNode<'a>, AstBuilderError> {
-    // pair: import_statement
     let mut inner = pair.into_inner();
-    let first = inner.next().ok_or_else(|| AstBuilderError("Import missing path".into()))?;
+    
+    let first = inner
+        .next()
+        .ok_or_else(|| AstBuilderError("Import: empty import_statement".into()))?;
+    if first.as_rule() != Rule::KEYWORD_IMPORT {
+        return Err(AstBuilderError(format!(
+            "Import: expected 'import', got {:?}",
+            first.as_rule()
+        )));
+    }
+    
+    let path_pair = inner
+        .next()
+        .ok_or_else(|| AstBuilderError("Import: missing import_path".into()))?;
+    if path_pair.as_rule() != Rule::import_path {
+        return Err(AstBuilderError(format!(
+            "Import: expected import_path, got {:?}",
+            path_pair.as_rule()
+        )));
+    }
 
-    // 路径段
+    // 构造 ModulePath
     let mut segments = Vec::new();
-    let (mut start_line, mut start_col) = (0, 0);
-    if first.as_rule() == Rule::import_path {
-        for (i, seg) in first.into_inner().enumerate() {
-            let (line, col) = seg.as_span().start_pos().line_col();
-            if i == 0 {
-                start_line = line;
-                start_col = col;
-            }
+    for seg in path_pair.into_inner() {
+        if seg.as_rule() == Rule::identifier {
+            let (ln, cl) = seg.as_span().start_pos().line_col();
             segments.push(IdentifierNode {
                 name: seg.as_str(),
-                line,
-                col,
+                line: ln,
+                col: cl,
             });
         }
-    } else {
-        return Err(AstBuilderError(format!("Import: expected import_path, got {:?}", first.as_rule())));
     }
-    let path = ModulePath {
-        segments,
-        line: start_line,
-        col: start_col,
+    let path = ModulePath { segments, line: 0, col: 0 }; // or use the span of path_pair
+    
+    let alias = if let Some(next) = inner.next() {
+        if next.as_rule() != Rule::KEYWORD_AS {
+            return Err(AstBuilderError(format!(
+                "Import: expected 'as', got {:?}",
+                next.as_rule()
+            )));
+        }
+        let id_pair = inner
+            .next()
+            .ok_or_else(|| AstBuilderError("Import: missing alias".into()))?;
+        let (ln, cl) = id_pair.as_span().start_pos().line_col();
+        Some( IdentifierNode {
+            name: id_pair.as_str(),
+            line: ln,
+            col: cl,
+        })
+    } else {
+        None
     };
 
-    // 可选别名
-    let mut alias = None;
-    if let Some(next) = inner.next() {
-        // 结构为 (KEYWORD_AS ~ identifier)
-        let mut alias_inner = next.into_inner();
-        let alias_pair = alias_inner.next().ok_or_else(|| AstBuilderError("Import: missing alias ident".into()))?;
-        let (l, c) = alias_pair.as_span().start_pos().line_col();
-        alias = Some(IdentifierNode {
-            name: alias_pair.as_str(),
-            line: l,
-            col: c,
-        });
-    }
-
-    Ok(ImportNode { path, alias })
+    Ok( ImportNode { path, alias } )
 }
