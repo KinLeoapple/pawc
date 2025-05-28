@@ -107,7 +107,6 @@ core_type = _{
 // This structure ensures that '?' is only considered after a complete core_type has been parsed.
 type_name = _{ core_type ~ optional_marker? }
 
-
 // -----------------------------------------------------------------------------
 // Expressions (Operator precedence tiers are atomic)
 // -----------------------------------------------------------------------------
