@@ -31,7 +31,7 @@ pub fn build_statement_node<'a>(
 
     match specific.as_rule() {
         Rule::variable_declaration => build_variable_declaration_node(specific),
-        Rule::variable_input_assignment => build_variable_input_assignment_node(specific),
+        // Rule::variable_input_assignment => build_variable_input_assignment_node(specific),
         Rule::assignment_statement => build_assignment_statement_node(specific),
         Rule::say_statement => build_say_statement_node(specific),
         Rule::ask_statement_simple => build_ask_statement_simple_node(specific),

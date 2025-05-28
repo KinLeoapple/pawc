@@ -57,7 +57,7 @@ PawScript 是一门既萌又实用的高性能强类型脚本语言，旨在实�
 let x: Int = 10
 let y: Int? = nopaw
 x = x + 1
-let name: String <- ask "Your name?"
+let name: String = ask "Your name?"
 ```
 
 * 使用 `let <id>: <Type> = <expr>` 声明变量

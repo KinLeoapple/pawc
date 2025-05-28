@@ -21,7 +21,7 @@ let greeting: String = "Welcome to PawScript!"
 say greeting
 
 # 输入绑定测试
-let user_name: String <- ask "What's your name?"
+let user_name: String = ask "What's your name?"
 
 # 函数定义
 fun factorial(n: Int): Int {

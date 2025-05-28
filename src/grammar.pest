@@ -143,10 +143,11 @@ length_access   = { ".length()" }
 
 postfix_expression = { primary_expression ~ (member_access | array_index | function_call | length_access)* }
 
-record_init_field = _{ identifier ~ ":" ~ expression }
+record_init_field = { identifier ~ ":" ~ expression }
 record_init = { identifier ~ "{" ~ (record_init_field ~ ("," ~ record_init_field)*)? ~ "}" }
 
 primary_expression = _{
+    ask_expression |
     boolean_literal | null_literal | integer_literal | long_literal | float_literal | double_literal |
     string_literal | character_literal |
     record_init |
@@ -159,12 +160,11 @@ literal = _{ primary_expression }
 // -----------------------------------------------------------------------------
 // Statements
 // -----------------------------------------------------------------------------
-code_body = _{ block | statement }
+code_body = { block | statement }
 block = _{ "{" ~ statement* ~ "}" }
 
 statement = {
     variable_declaration |
-    variable_input_assignment |
     assignment_statement |
     say_statement |
     ask_statement_simple |
@@ -180,7 +180,6 @@ statement = {
 }
 
 variable_declaration = { KEYWORD_LET ~ identifier ~ (":" ~ type_name)? ~ "=" ~ expression }
-variable_input_assignment = { KEYWORD_LET ~ identifier ~ (":" ~ type_name)? ~ "<-" ~ ask_expression }
 
 assignment_statement = { identifier ~ "=" ~ expression }
 

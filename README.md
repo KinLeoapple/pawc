@@ -57,7 +57,7 @@ PawScript is a cute yet practical, high-performance, strongly-typed scripting la
 let x: Int = 10
 let y: Int? = nopaw
 x = x + 1
-let name: String <- ask "Your name?"
+let name: String = ask "Your name?"
 ```
 
 * `let <id>: <Type> = <expr>` to declare

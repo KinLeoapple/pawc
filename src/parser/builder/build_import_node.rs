@@ -3,8 +3,9 @@ use crate::parser::parser::{AstBuilderError, Rule};
 use pest::iterators::Pair;
 
 pub fn build_import_node<'a>(pair: Pair<'a, Rule>) -> Result<ImportNode<'a>, AstBuilderError> {
+    let (line, col) = pair.as_span().start_pos().line_col();
     let mut inner = pair.into_inner();
-    
+
     let first = inner
         .next()
         .ok_or_else(|| AstBuilderError("Import: empty import_statement".into()))?;
@@ -14,7 +15,7 @@ pub fn build_import_node<'a>(pair: Pair<'a, Rule>) -> Result<ImportNode<'a>, Ast
             first.as_rule()
         )));
     }
-    
+
     let path_pair = inner
         .next()
         .ok_or_else(|| AstBuilderError("Import: missing import_path".into()))?;
@@ -37,8 +38,12 @@ pub fn build_import_node<'a>(pair: Pair<'a, Rule>) -> Result<ImportNode<'a>, Ast
             });
         }
     }
-    let path = ModulePath { segments, line: 0, col: 0 }; // or use the span of path_pair
-    
+    let path = ModulePath {
+        segments,
+        line,
+        col,
+    };
+
     let alias = if let Some(next) = inner.next() {
         if next.as_rule() != Rule::KEYWORD_AS {
             return Err(AstBuilderError(format!(
@@ -50,7 +55,7 @@ pub fn build_import_node<'a>(pair: Pair<'a, Rule>) -> Result<ImportNode<'a>, Ast
             .next()
             .ok_or_else(|| AstBuilderError("Import: missing alias".into()))?;
         let (ln, cl) = id_pair.as_span().start_pos().line_col();
-        Some( IdentifierNode {
+        Some(IdentifierNode {
             name: id_pair.as_str(),
             line: ln,
             col: cl,
@@ -59,5 +64,5 @@ pub fn build_import_node<'a>(pair: Pair<'a, Rule>) -> Result<ImportNode<'a>, Ast
         None
     };
 
-    Ok( ImportNode { path, alias } )
+    Ok(ImportNode { path, alias })
 }

@@ -205,7 +205,8 @@ pub enum ExpressionNode<'a> {
         col: usize,
     },
     TypeName(TypeNameNode<'a>),
-    RecordInit(RecordInitNode<'a>)
+    RecordInit(RecordInitNode<'a>),
+    Ask { prompt: Box<ExpressionNode<'a>> },
 }
 
 impl<'a> AstNode for ExpressionNode<'a> {
@@ -224,6 +225,7 @@ impl<'a> AstNode for ExpressionNode<'a> {
             ExpressionNode::FunctionCall { line, .. } => *line,
             ExpressionNode::LengthAccess { line, .. } => *line,
             ExpressionNode::RecordInit(node) => node.line,
+            ExpressionNode::Ask { prompt } => prompt.line()
         }
     }
     fn col(&self) -> usize {
@@ -241,6 +243,7 @@ impl<'a> AstNode for ExpressionNode<'a> {
             ExpressionNode::FunctionCall { col, .. } => *col,
             ExpressionNode::LengthAccess { col, .. } => *col,
             ExpressionNode::RecordInit(node) => node.col,
+            ExpressionNode::Ask { prompt } => prompt.col(),
         }
     }
 }
