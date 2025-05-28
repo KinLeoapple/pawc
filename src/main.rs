@@ -3,10 +3,21 @@ extern crate pest;
 mod parser;
 mod ast;
 
+use crate::parser::parser::{parse, PawScriptParser, Rule};
 use once_cell::sync::OnceCell;
+use pest::Parser;
 
 pub static STACK_SIZE: OnceCell<usize> = OnceCell::with_value(1);
 
 fn main() {
-    
+    let src = std::fs::read_to_string("test.paw").unwrap();
+    let pairs = PawScriptParser::parse(Rule::program, &src)
+        .expect("Parse failed");
+    for pair in pairs.clone() {
+        println!("{:?}", pair.as_rule());
+    }
+
+    let ast = parse(pairs).expect("AST build failed");
+
+    println!("{:#?}", ast);
 }

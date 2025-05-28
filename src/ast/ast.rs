@@ -16,8 +16,12 @@ pub struct IdentifierNode<'a> {
 }
 
 impl<'a> AstNode for IdentifierNode<'a> {
-    fn line(&self) -> usize { self.line }
-    fn col(&self) -> usize { self.col }
+    fn line(&self) -> usize {
+        self.line
+    }
+    fn col(&self) -> usize {
+        self.col
+    }
 }
 
 /// Module path: sequence of identifiers with position at start
@@ -29,8 +33,12 @@ pub struct ModulePath<'a> {
 }
 
 impl<'a> AstNode for ModulePath<'a> {
-    fn line(&self) -> usize { self.line }
-    fn col(&self) -> usize { self.col }
+    fn line(&self) -> usize {
+        self.line
+    }
+    fn col(&self) -> usize {
+        self.col
+    }
 }
 
 /// Import declaration node
@@ -40,6 +48,22 @@ pub struct ImportNode<'a> {
     pub alias: Option<IdentifierNode<'a>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct RecordInitFieldNode<'a> {
+    pub name: IdentifierNode<'a>,
+    pub expr: ExpressionNode<'a>,
+    pub line: usize,
+    pub col: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct RecordInitNode<'a> {
+    pub typename: IdentifierNode<'a>,
+    pub fields: Vec<RecordInitFieldNode<'a>>,
+    pub line: usize,
+    pub col: usize,
+}
+
 /// Top-level declaration items
 #[derive(Debug, Clone)]
 pub enum TopLevelKind<'a> {
@@ -47,6 +71,7 @@ pub enum TopLevelKind<'a> {
     Function(FunctionDefinitionNode<'a>),
     Record(RecordDefinitionNode<'a>),
     Protocol(ProtocolDefinitionNode<'a>),
+    Statement(StatementNode<'a>),
 }
 
 /// Wrapper for top-level items including location
@@ -58,8 +83,12 @@ pub struct TopLevelItem<'a> {
 }
 
 impl<'a> AstNode for TopLevelItem<'a> {
-    fn line(&self) -> usize { self.line }
-    fn col(&self) -> usize { self.col }
+    fn line(&self) -> usize {
+        self.line
+    }
+    fn col(&self) -> usize {
+        self.col
+    }
 }
 
 /// Core type names: simple or generic
@@ -82,8 +111,12 @@ pub struct TypeNameNode<'a> {
 }
 
 impl<'a> AstNode for TypeNameNode<'a> {
-    fn line(&self) -> usize { self.line }
-    fn col(&self) -> usize { self.col }
+    fn line(&self) -> usize {
+        self.line
+    }
+    fn col(&self) -> usize {
+        self.col
+    }
 }
 
 /// Literal variants
@@ -108,8 +141,12 @@ pub struct StringInterpolationNode<'a> {
 }
 
 impl<'a> AstNode for StringInterpolationNode<'a> {
-    fn line(&self) -> usize { self.line }
-    fn col(&self) -> usize { self.col }
+    fn line(&self) -> usize {
+        self.line
+    }
+    fn col(&self) -> usize {
+        self.col
+    }
 }
 
 /// Parts of a string: literal text or embedded expression
@@ -144,37 +181,66 @@ pub enum ExpressionNode<'a> {
         line: usize,
         col: usize,
     },
+    MemberAccess {
+        target: Box<ExpressionNode<'a>>,
+        member: IdentifierNode<'a>,
+        line: usize,
+        col: usize,
+    },
+    FunctionCall {
+        callee: Box<ExpressionNode<'a>>,
+        args: Vec<ExpressionNode<'a>>,
+        line: usize,
+        col: usize,
+    },
+    LengthAccess {
+        target: Box<ExpressionNode<'a>>,
+        line: usize,
+        col: usize,
+    },
     Interpolation(StringInterpolationNode<'a>),
     Await {
         expr: Box<ExpressionNode<'a>>,
         line: usize,
         col: usize,
     },
+    TypeName(TypeNameNode<'a>),
+    RecordInit(RecordInitNode<'a>)
 }
 
 impl<'a> AstNode for ExpressionNode<'a> {
     fn line(&self) -> usize {
         match self {
-            ExpressionNode::BinaryOp{ line, .. } => *line,
-            ExpressionNode::UnaryOp{ line, .. } => *line,
-            ExpressionNode::ArrayAccess{ line, .. } => *line,
-            ExpressionNode::Await{ line, .. } => *line,
+            ExpressionNode::BinaryOp { line, .. } => *line,
+            ExpressionNode::UnaryOp { line, .. } => *line,
+            ExpressionNode::ArrayAccess { line, .. } => *line,
+            ExpressionNode::Await { line, .. } => *line,
             ExpressionNode::Interpolation(node) => node.line,
             ExpressionNode::Literal(_) => 0,
             ExpressionNode::Identifier(id) => id.line,
             ExpressionNode::ArrayLiteral(_) => 0,
+            ExpressionNode::TypeName(node) => node.line,
+            ExpressionNode::MemberAccess { line, .. } => *line,
+            ExpressionNode::FunctionCall { line, .. } => *line,
+            ExpressionNode::LengthAccess { line, .. } => *line,
+            ExpressionNode::RecordInit(node) => node.line,
         }
     }
     fn col(&self) -> usize {
         match self {
-            ExpressionNode::BinaryOp{ col, .. } => *col,
-            ExpressionNode::UnaryOp{ col, .. } => *col,
-            ExpressionNode::ArrayAccess{ col, .. } => *col,
-            ExpressionNode::Await{ col, .. } => *col,
+            ExpressionNode::BinaryOp { col, .. } => *col,
+            ExpressionNode::UnaryOp { col, .. } => *col,
+            ExpressionNode::ArrayAccess { col, .. } => *col,
+            ExpressionNode::Await { col, .. } => *col,
             ExpressionNode::Interpolation(node) => node.col,
             ExpressionNode::Literal(_) => 0,
             ExpressionNode::Identifier(id) => id.col,
             ExpressionNode::ArrayLiteral(_) => 0,
+            ExpressionNode::TypeName(node) => node.col,
+            ExpressionNode::MemberAccess { col, .. } => *col,
+            ExpressionNode::FunctionCall { col, .. } => *col,
+            ExpressionNode::LengthAccess { col, .. } => *col,
+            ExpressionNode::RecordInit(node) => node.col,
         }
     }
 }
@@ -213,7 +279,22 @@ pub enum StatementNode<'a> {
     },
     If(IfNode<'a>),
     Loop(LoopNode<'a>),
+    Break {
+        line: usize,
+        col: usize,
+    },
+    Continue {
+        line: usize,
+        col: usize,
+    },
+    Import(ImportNode<'a>),
     ErrorHandling(ErrorHandlingNode<'a>),
+    Assign {
+        target: IdentifierNode<'a>,
+        expr: ExpressionNode<'a>,
+        line: usize,
+        col: usize,
+    },
 }
 
 /// If statement
@@ -227,28 +308,60 @@ pub struct IfNode<'a> {
 }
 
 impl<'a> AstNode for IfNode<'a> {
-    fn line(&self) -> usize { self.line }
-    fn col(&self) -> usize { self.col }
+    fn line(&self) -> usize {
+        self.line
+    }
+    fn col(&self) -> usize {
+        self.col
+    }
 }
 
 /// Loop variants
 #[derive(Debug, Clone)]
 pub enum LoopNode<'a> {
-    Infinite { body: Vec<StatementNode<'a>>, line: usize, col: usize },
-    While { cond: ExpressionNode<'a>, body: Vec<StatementNode<'a>>, line: usize, col: usize },
-    Range { var: IdentifierNode<'a>, start: ExpressionNode<'a>, end: ExpressionNode<'a>, body: Vec<StatementNode<'a>>, line: usize, col: usize },
-    Iterable { var: IdentifierNode<'a>, iterable: ExpressionNode<'a>, body: Vec<StatementNode<'a>>, line: usize, col: usize },
+    Infinite {
+        body: Vec<StatementNode<'a>>,
+        line: usize,
+        col: usize,
+    },
+    While {
+        cond: ExpressionNode<'a>,
+        body: Vec<StatementNode<'a>>,
+        line: usize,
+        col: usize,
+    },
+    Range {
+        var: IdentifierNode<'a>,
+        start: ExpressionNode<'a>,
+        end: ExpressionNode<'a>,
+        body: Vec<StatementNode<'a>>,
+        line: usize,
+        col: usize,
+    },
+    Iterable {
+        var: IdentifierNode<'a>,
+        iterable: ExpressionNode<'a>,
+        body: Vec<StatementNode<'a>>,
+        line: usize,
+        col: usize,
+    },
 }
 
 impl<'a> AstNode for LoopNode<'a> {
     fn line(&self) -> usize {
         match self {
-            LoopNode::Infinite{ line, .. } | LoopNode::While{ line, .. } | LoopNode::Range{ line, .. } | LoopNode::Iterable{ line, .. } => *line,
+            LoopNode::Infinite { line, .. }
+            | LoopNode::While { line, .. }
+            | LoopNode::Range { line, .. }
+            | LoopNode::Iterable { line, .. } => *line,
         }
     }
     fn col(&self) -> usize {
         match self {
-            LoopNode::Infinite{ col, .. } | LoopNode::While{ col, .. } | LoopNode::Range{ col, .. } | LoopNode::Iterable{ col, .. } => *col,
+            LoopNode::Infinite { col, .. }
+            | LoopNode::While { col, .. }
+            | LoopNode::Range { col, .. }
+            | LoopNode::Iterable { col, .. } => *col,
         }
     }
 }
@@ -264,8 +377,12 @@ pub struct ErrorHandlingNode<'a> {
 }
 
 impl<'a> AstNode for ErrorHandlingNode<'a> {
-    fn line(&self) -> usize { self.line }
-    fn col(&self) -> usize { self.col }
+    fn line(&self) -> usize {
+        self.line
+    }
+    fn col(&self) -> usize {
+        self.col
+    }
 }
 
 /// Function definition
@@ -281,8 +398,12 @@ pub struct FunctionDefinitionNode<'a> {
 }
 
 impl<'a> AstNode for FunctionDefinitionNode<'a> {
-    fn line(&self) -> usize { self.line }
-    fn col(&self) -> usize { self.col }
+    fn line(&self) -> usize {
+        self.line
+    }
+    fn col(&self) -> usize {
+        self.col
+    }
 }
 
 /// Record definition
@@ -297,8 +418,12 @@ pub struct RecordDefinitionNode<'a> {
 }
 
 impl<'a> AstNode for RecordDefinitionNode<'a> {
-    fn line(&self) -> usize { self.line }
-    fn col(&self) -> usize { self.col }
+    fn line(&self) -> usize {
+        self.line
+    }
+    fn col(&self) -> usize {
+        self.col
+    }
 }
 
 /// Protocol (interface) definition
@@ -311,8 +436,12 @@ pub struct ProtocolDefinitionNode<'a> {
 }
 
 impl<'a> AstNode for ProtocolDefinitionNode<'a> {
-    fn line(&self) -> usize { self.line }
-    fn col(&self) -> usize { self.col }
+    fn line(&self) -> usize {
+        self.line
+    }
+    fn col(&self) -> usize {
+        self.col
+    }
 }
 
 /// Function signature for protocols
@@ -327,20 +456,36 @@ pub struct FunctionSignatureNode<'a> {
 }
 
 impl<'a> AstNode for FunctionSignatureNode<'a> {
-    fn line(&self) -> usize { self.line }
-    fn col(&self) -> usize { self.col }
+    fn line(&self) -> usize {
+        self.line
+    }
+    fn col(&self) -> usize {
+        self.col
+    }
 }
 
 /// Binary operators
 #[derive(Debug, Clone)]
 pub enum BinaryOp {
-    Add, Sub, Mul, Div, Mod,
-    EqEq, NotEq, Lt, Le, Gt, Ge,
-    And, Or, As,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    EqEq,
+    NotEq,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
+    As,
 }
 
 /// Unary operators
 #[derive(Debug, Clone)]
 pub enum UnaryOp {
-    Negate, Not,
+    Negate,
+    Not,
 }

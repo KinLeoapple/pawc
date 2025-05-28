@@ -162,7 +162,7 @@ literal = _{ primary_expression }
 code_body = _{ block | statement }
 block = _{ "{" ~ statement* ~ "}" }
 
-statement = _{
+statement = {
     variable_declaration |
     variable_input_assignment |
     assignment_statement |
@@ -239,7 +239,9 @@ function_definition = _{
 record_field_def = _{ identifier ~ ":" ~ type_name }
 record_member = _{ record_field_def | function_definition }
 record_implements_clause = _{ ":" ~ type_name ~ ("," ~ type_name)* }
-record_definition = _{ KEYWORD_RECORD ~ identifier ~ record_implements_clause? ~ "{" ~ record_member* ~ "}" }
+record_definition = _{
+    KEYWORD_RECORD ~ identifier ~ record_implements_clause? ~ "{" ~ (record_member ~ ("," ~ record_member)* ~ ","?)? ~ "}"
+}
 
 protocol_method_signature = _{
     (KEYWORD_ASYNC ~ KEYWORD_FUN | KEYWORD_FUN) ~
@@ -252,5 +254,5 @@ protocol_definition = _{ KEYWORD_TAIL ~ identifier ~ "{" ~ protocol_method_signa
 // -----------------------------------------------------------------------------
 // Program Structure (Relying purely on implicit WHITESPACE & COMMENT)
 // -----------------------------------------------------------------------------
-top_level_item = _{ statement | function_definition | record_definition | protocol_definition }
-program = _{ SOI ~ top_level_item* ~ EOI }
+top_level_item = { statement | function_definition | record_definition | protocol_definition }
+program = { SOI ~ top_level_item* ~ EOI }

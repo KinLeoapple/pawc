@@ -1,6 +1,7 @@
+use crate::ast::ast::TopLevelItem;
+use crate::parser::builder::build_toplevel_items::build_toplevel_items;
+use pest::iterators::{Pair, Pairs};
 use pest_derive::Parser;
-
-use crate::ast::ast::*;
 
 #[derive(Parser)]
 #[grammar = "src/grammar.pest"]
@@ -17,3 +18,13 @@ impl std::fmt::Display for AstBuilderError {
 }
 
 impl std::error::Error for AstBuilderError {}
+
+pub fn parse<'a>(pairs: Pairs<'a, Rule>) -> Result<Vec<TopLevelItem<'a>>, AstBuilderError> {
+    let mut items = Vec::new();
+
+    for pair in pairs {
+        items.extend(build_toplevel_items(pair)?);
+    }
+
+    Ok(items)
+}
