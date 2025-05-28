@@ -1,7 +1,89 @@
-fun test(): Int {
-  return 123
+# 模块导入测试
+import math as m
+
+# 协议定义
+tail Greeter {
+  fun greet(name: String): String
 }
 
-fun test2(): Void {
-  return
+# 记录定义及实现接口
+record Person: Greeter {
+  name: String,
+  age: Int,
+
+  fun greet(name: String): String {
+    return "Hello, ${name}, I'm ${self.name}"
+  }
 }
+
+# 顶层变量声明与 say 测试
+let greeting: String = "Welcome to PawScript!"
+say greeting
+
+# 输入绑定测试
+let user_name: String <- ask "What's your name?"
+
+# 函数定义
+fun factorial(n: Int): Int {
+  if n <= 1 {
+    return 1
+  } else {
+    return n * factorial(n - 1)
+  }
+}
+
+# 数组与循环测试
+let nums: Array<Int> = [1, 2, 3, 4, 5]
+loop i in 0..5 {
+  say "num[${i}] = ${nums[i]}"
+}
+
+# 条件分支测试
+let value: Int = 7
+if value % 2 == 0 {
+  say "Even"
+} else if value % 3 == 0 {
+  say "Divisible by 3"
+} else {
+  say "Odd"
+}
+
+# 字符串插值测试
+say "Hello, ${user_name}!"
+
+# 无限循环测试（注意执行器需限步防止死循环）
+loop {
+  break
+}
+
+# 记录初始化与方法调用
+let p: Person = Person { name: user_name, age: 18 }
+say p.greet("visitor")
+
+# 异步函数定义（当前为语法覆盖）
+async fun fetch(): String {
+  return "pretend to await..."
+}
+
+# 错误处理语法
+sniff {
+  bark "try something risky"
+  let risky: Int = 10 / 0
+} snatch (err) {
+  say "Caught error"
+} lastly {
+  say "Cleanup done"
+}
+
+# 空类型测试
+let nothing: Optional<String> = nopaw
+if nothing == nopaw {
+  say "Got nothing!"
+}
+
+# 返回数组长度
+say "nums has ${nums.length()} elements"
+
+# 多行字符串插值测试
+say "Result of factorial(5) = ${factorial(5)}"
+
