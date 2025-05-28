@@ -10,11 +10,11 @@ COMMENT    = _{ "#" ~ (!NEWLINE ~ ANY)* }
 // -----------------------------------------------------------------------------
 // Literals
 // -----------------------------------------------------------------------------
-string_char = _{ !("\"" | "\\") ~ ANY }
-escape_sequence = _{ "\\" ~ ("\"" | "\\" | "n" | "r" | "t" | "0" | "u{" ~ hex_digit{1,6} ~ "}") }
-string_interpolation = _{ "${" ~ expression ~ "}" }
-string_content = _{ (string_char | escape_sequence | string_interpolation)* }
-string_literal = @{ "\"" ~ string_content ~ "\"" }
+string_char = { !("\"" | "\\") ~ ANY }
+escape_sequence = { "\\" ~ ("\"" | "\\" | "n" | "r" | "t" | "0" | "u{" ~ hex_digit{1,6} ~ "}") }
+string_interpolation = { "${" ~ expression ~ "}" }
+string_content = { (string_interpolation | escape_sequence | string_char)* }
+string_literal = { "\"" ~ string_content ~ "\"" }
 
 character_literal = @{ "'" ~ (escape_sequence | !("'" | "\\") ~ ANY) ~ "'" }
 
