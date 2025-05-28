@@ -13,9 +13,6 @@ fn main() {
     let src = std::fs::read_to_string("test.paw").unwrap();
     let pairs = PawScriptParser::parse(Rule::program, &src)
         .expect("Parse failed");
-    for pair in pairs.clone() {
-        println!("{:?}", pair.as_rule());
-    }
 
     let ast = parse(pairs).expect("AST build failed");
 

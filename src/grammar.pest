@@ -128,19 +128,20 @@ additive_operator = { "+" | "-" }
 additive_expression = { multiplicative_expression ~ (additive_operator ~ multiplicative_expression)* }
 
 multiplicative_operator = { "*" | "/" | "%" }
-multiplicative_expression = { unary_expression ~ (multiplicative_operator ~ unary_expression)* }
+multiplicative_expression = { postfix_expression ~ (multiplicative_operator ~ postfix_expression)* }
 
 unary_operator = { "!" | "+" | "-" }
 unary_expression = _{ (unary_operator ~ unary_expression) | cast_expression }
 cast_expression = _{ await_expression ~ (KEYWORD_AS ~ type_name)? }
 await_expression = _{ (KEYWORD_AWAIT ~ postfix_expression) | postfix_expression }
 
-member_access = _{ "." ~ identifier }
-array_index   = _{ "[" ~ expression ~ "]" }
-argument_list = _{ (expression ~ ("," ~ expression)*)? }
-function_call = _{ "(" ~ argument_list ~ ")" }
-length_access = _{ ".length()" }
-postfix_expression = _{ primary_expression ~ (member_access | array_index | function_call | length_access)* }
+member_access   = { "." ~ identifier }
+array_index     = { "[" ~ expression ~ "]" }
+argument_list   = { (expression ~ ("," ~ expression)*)? }
+function_call   = { "(" ~ argument_list ~ ")" }
+length_access   = { ".length()" }
+
+postfix_expression = { primary_expression ~ (member_access | array_index | function_call | length_access)* }
 
 record_init_field = _{ identifier ~ ":" ~ expression }
 record_init = { identifier ~ "{" ~ (record_init_field ~ ("," ~ record_init_field)*)? ~ "}" }
