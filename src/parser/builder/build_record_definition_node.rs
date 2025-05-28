@@ -1,8 +1,8 @@
-use pest::iterators::Pair;
-use crate::ast::ast::{CoreTypeNameNode, IdentifierNode, RecordDefinitionNode, TypeNameNode};
+use crate::ast::ast::{IdentifierNode, RecordDefinitionNode};
 use crate::parser::builder::build_function_definition_node::build_function_definition_node;
 use crate::parser::builder::build_type_name_node::build_type_name_node;
 use crate::parser::parser::{AstBuilderError, Rule};
+use pest::iterators::Pair;
 
 pub fn build_record_definition_node<'a>(pair: Pair<'a, Rule>) -> Result<RecordDefinitionNode<'a>, AstBuilderError> {
     let (line, col) = pair.as_span().start_pos().line_col();
@@ -42,7 +42,7 @@ pub fn build_record_definition_node<'a>(pair: Pair<'a, Rule>) -> Result<RecordDe
         for protocol_id in next.into_inner() {
             let (line, col) = protocol_id.as_span().start_pos().line_col();
             let id = IdentifierNode {
-                name: protocol_id.as_str(),
+                name: protocol_id.as_str().trim(),
                 line,
                 col,
             };

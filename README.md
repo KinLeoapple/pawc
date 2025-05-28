@@ -143,7 +143,7 @@ tail Greeter {
 }
 
 record Person: Greeter {
-  name: String
+  name: String,
   age: Int
   fun greet(self, name: String): String {
     return "Hello, ${self.name}!"
