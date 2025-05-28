@@ -5,17 +5,14 @@ use crate::parser::parser::{AstBuilderError, Rule};
 
 pub fn build_return_statement_node<'a>(pair: Pair<'a, Rule>) -> Result<StatementNode<'a>, AstBuilderError> {
     let (line, col) = pair.as_span().start_pos().line_col();
-    let mut inner = pair.into_inner();
+    let mut inner = pair.into_inner(); // 子项可能是空或一个 expression
 
-    // 可有可无 expression
-    let expr = if let Some(expr_pair) = inner.next() {
-        Some(build_expression_node(expr_pair)?)
-    } else {
-        None
-    };
+    let expr_opt = inner.next()
+        .map(|p| build_expression_node(p))
+        .transpose()?; // None => return without expression
 
     Ok(StatementNode::Return {
-        expr,
+        expr: expr_opt,
         line,
         col,
     })

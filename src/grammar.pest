@@ -188,9 +188,9 @@ ask_expression = { KEYWORD_ASK ~ expression }
 ask_statement_simple = { ask_expression }
 
 
-return_statement = _{ KEYWORD_RETURN ~ expression? }
+return_statement = { KEYWORD_RETURN ~ expression? }
 
-if_statement = _{
+if_statement = {
     KEYWORD_IF ~ expression ~ code_body ~
     (KEYWORD_ELSE ~ KEYWORD_IF ~ expression ~ code_body)* ~
     (KEYWORD_ELSE ~ code_body)?
@@ -227,13 +227,7 @@ expression_statement = { expression }
 param_decl = { identifier ~ ":" ~ type_name }
 param_list = { (param_decl ~ ("," ~ param_decl)*)? }
 
-function_definition = {
-    (KEYWORD_ASYNC ~ KEYWORD_FUN | KEYWORD_FUN) ~
-    identifier ~
-    "(" ~ param_list ~ ")" ~
-    (":" ~ type_name)? ~
-    code_body
-}
+function_definition = { (KEYWORD_ASYNC ~ KEYWORD_FUN | KEYWORD_FUN) ~ identifier ~ "(" ~ param_list ~ ")" ~ (":" ~ type_name)? ~ block }
 
 record_field_def = { identifier ~ ":" ~ type_name }
 record_member = { record_field_def | function_definition }
