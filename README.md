@@ -138,14 +138,14 @@ bark "error message"
 
 ```paw
 tail Greeter {
-  fun greet(self, name: String): String
+  fun greet(name: String): String
   async fun fetch(): Int
 }
 
 record Person: Greeter {
   name: String,
   age: Int
-  fun greet(self, name: String): String {
+  fun greet(name: String): String {
     return "Hello, ${self.name}!"
   }
 }

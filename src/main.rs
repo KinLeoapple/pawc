@@ -2,6 +2,7 @@ extern crate pest;
 
 mod parser;
 mod ast;
+mod semantic;
 
 use crate::parser::parser::{parse, PawScriptParser, Rule};
 use once_cell::sync::OnceCell;
