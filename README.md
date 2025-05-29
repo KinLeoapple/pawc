@@ -44,7 +44,7 @@ PawScript is a cute yet practical, high-performance, strongly-typed scripting la
 ### Basic Types & Literals
 
 * **Primitive Types**: `Int`, `Long`, `Float`, `Double`, `Bool`, `Char`, `String`
-* **Optional Types**: `T?` or `Optional<T>`; empty value is `nopaw`
+* **Optional Types**: `T?`; empty value is `nopaw`
 * **Arrays**: `Array<T>`, e.g. `Array<Int>`
 * **Literal Details**:
 
@@ -149,6 +149,9 @@ record Person: Greeter {
     return "Hello, ${self.name}!"
   }
 }
+
+let p: Person = Person { name: "Paw", age: 18 }
+say p.greet("visitor")
 ```
 
 ### Modules & Imports

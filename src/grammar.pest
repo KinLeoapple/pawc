@@ -68,7 +68,6 @@ KEYWORD_BOOL     = { "Bool" }
 KEYWORD_CHAR     = { "Char" }
 KEYWORD_STRING   = { "String" }
 KEYWORD_ARRAY    = { "Array" }
-KEYWORD_OPTIONAL = { "Optional" }
 
 KEYWORD = _{
     KEYWORD_LET | KEYWORD_IF | KEYWORD_ELSE | KEYWORD_LOOP |
@@ -77,16 +76,16 @@ KEYWORD = _{
     KEYWORD_IMPORT | KEYWORD_SAY | KEYWORD_ASK | KEYWORD_AWAIT | KEYWORD_BREAK |
     KEYWORD_CONTINUE | KEYWORD_TAIL | KEYWORD_NULL |
     KEYWORD_ANY | KEYWORD_INT | KEYWORD_LONG | KEYWORD_FLOAT | KEYWORD_DOUBLE |
-    KEYWORD_BOOL | KEYWORD_CHAR | KEYWORD_STRING | KEYWORD_ARRAY | KEYWORD_OPTIONAL |
+    KEYWORD_BOOL | KEYWORD_CHAR | KEYWORD_STRING | KEYWORD_ARRAY |
     boolean_literal
 }
 
 // -----------------------------------------------------------------------------
 // Types (MODIFIED for robust optional handling)
 // -----------------------------------------------------------------------------
-optional_marker = _{ "?" }
+optional_marker = { "?" }
 
-generic_type_name_constructor = { KEYWORD_ARRAY | KEYWORD_OPTIONAL }
+generic_type_name_constructor = { KEYWORD_ARRAY }
 generic_type_def = { generic_type_name_constructor ~ "<" ~ type_name ~ ">" }
 // core_type represents a non-optional, possibly generic or primitive type, or an identifier.
 // It uses a recursive definition for type_name within generic_type_def.

@@ -44,7 +44,7 @@ PawScript 是一门既萌又实用的高性能强类型脚本语言，旨在实�
 ### 基本类型 & 字面量
 
 * **原始类型**：`Int`、`Long`、`Float`、`Double`、`Bool`、`Char`、`String`
-* **可选类型**：`T?` 或 `Optional<T>`；空值为 `nopaw`
+* **可选类型**：`T?`；空值为 `nopaw`
 * **数组**：`Array<T>`，例如 `Array<Int>`
 * **字面量详情**：
 
@@ -149,6 +149,9 @@ record Person: Greeter {
     return "Hello, ${self.name}!"
   }
 }
+
+let p: Person = Person { name: "Paw", age: 18 }
+say p.greet("visitor")
 ```
 
 ### 模块 & 导入

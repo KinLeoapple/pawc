@@ -15,20 +15,26 @@ pub fn build_core_type_name_node<'a>(pair: Pair<'a, Rule>) -> Result<CoreTypeNam
         }
         // 泛型：Generic
         Rule::generic_type_def => {
+            // 这里只允许 Array<T>
             let mut inner = pair.into_inner();
-            // 构造器名字 "Array" 或 "Optional"
             let cons_pair = inner.next().unwrap();
+            let gen_kw = cons_pair.as_str();
+            if gen_kw != "Array" {
+                return Err(AstBuilderError(format!(
+                    "unsupported generic type `{}`, use `T?` instead of `Optional<T>`",
+                    gen_kw
+                )));
+            }
             let name_id = IdentifierNode {
                 name: cons_pair.as_str(),
                 line: cons_pair.as_span().start_pos().line_col().0,
                 col: cons_pair.as_span().start_pos().line_col().1,
             };
-            // 下一个是 type_name
-            let type_arg_pair = inner.next().unwrap();
-            let arg_tn = build_type_name_node(type_arg_pair)?;
+            let arg_pair = inner.next().unwrap();
+            let arg = build_type_name_node(arg_pair)?;
             Ok(CoreTypeNameNode::Generic {
                 name: name_id,
-                type_args: vec![arg_tn],
+                type_args: vec![arg],
             })
         }
         // 原子类型

@@ -76,7 +76,7 @@ sniff {
 }
 
 # 空类型测试
-let nothing: Optional<String> = nopaw
+let nothing: String? = nopaw
 if nothing == nopaw {
   say "Got nothing!"
 }
