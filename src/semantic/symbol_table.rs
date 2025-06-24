@@ -1,5 +1,8 @@
-use ahash::AHashMap;
+use std::fs::read_to_string;
 use crate::ast::ast::*;
+use crate::parser::parser::{parse, PawScriptParser, Rule};
+use ahash::AHashMap;
+use pest::Parser;
 
 #[derive(Debug, Clone)]
 pub enum SymbolEntry<'a> {
@@ -76,6 +79,43 @@ impl<'a> SymbolTable<'a> {
         }
         None
     }
+
+    pub fn build_from_ast(&mut self, ast: &[TopLevelItem<'a>]) -> Result<(), String> {
+        for item in ast {
+            match &item.node {
+                TopLevelKind::Function(func) => {
+                    self.insert(SymbolEntry::Function {
+                        name: func.name.clone(),
+                        params: func.params.clone(),
+                        return_type: Option::from(func.return_type.clone()),
+                    })?;
+                }
+                TopLevelKind::Record(record) => {
+                    self.insert(SymbolEntry::Record {
+                        name: record.name.clone(),
+                        fields: record.fields.clone(),
+                        methods: record.methods.clone(),
+                    })?;
+                }
+                TopLevelKind::Protocol(protocol) => {
+                    self.insert(SymbolEntry::Protocol {
+                        name: protocol.name.clone(),
+                        methods: protocol.methods.clone(),
+                    })?;
+                }
+                TopLevelKind::ModuleImport(_import) => {}
+                TopLevelKind::Statement(stmt) => {
+                    if let StatementNode::Let { name, type_name, .. } = stmt {
+                        self.insert(SymbolEntry::Variable {
+                            name: name.clone(),
+                            type_name: type_name.clone(),
+                        })?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// 管理所有模块符号表的注册表
@@ -95,9 +135,27 @@ impl<'a> ModuleRegistry<'a> {
         if self.tables.contains_key(module_name) {
             return Err(format!("Module '{}' is already registered", module_name));
         }
-        // TODO: 解析模块文件 path 并构建其符号表
-        let table = SymbolTable::new();
-        self.tables.insert(module_name, table);
+
+        // 读取模块源码
+        let source = read_to_string(path)
+            .map_err(|e| format!("Failed to read module '{}': {}", path, e))?;
+
+        let src_static: &'static str = Box::leak(source.into_boxed_str());
+        
+        // 使用 Pest 解析源码生成初始的语法树
+        let pairs = PawScriptParser::parse(Rule::program, src_static)
+            .map_err(|e| format!("Failed to parse module '{}': {}", module_name, e))?;
+
+        // 从Pest语法树转换为 PawScript AST
+        let ast = parse(pairs).map_err(|e| format!("AST construction error: {}", e))?;
+
+        // 根据AST创建符号表
+        let mut symbol_table = SymbolTable::new();
+        symbol_table.build_from_ast(&ast)?;
+
+        // 插入模块符号表到注册表中
+        self.tables.insert(module_name, symbol_table);
+
         Ok(())
     }
 
